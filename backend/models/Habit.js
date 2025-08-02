@@ -1,26 +1,27 @@
-'use strict';
-const {
-  Model
-} = require('sequelize');
 module.exports = (sequelize, DataTypes) => {
-  class Habit extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     */
-    static associate(models) {
-      // define association here
-    }
-  }
-  Habit.init({
-    title: DataTypes.STRING,
-    description: DataTypes.STRING,
-    status: DataTypes.BOOLEAN,
-    userId: DataTypes.INTEGER
-  }, {
-    sequelize,
-    modelName: 'Habit',
+  const Habit = sequelize.define('Habit', {
+    title: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    frequency: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    completed: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+     userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
   });
+Habit.associate = (models) => {
+    Habit.belongsTo(models.User, {
+      foreignKey: "userId",
+      onDelete: "CASCADE",
+   });
+  };   
   return Habit;
 };

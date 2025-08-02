@@ -1,74 +1,73 @@
-const Habit = require('../models/Habit');
+const db = require('../models');
+const Habit = db.Habit;
 
-// UNTUK GET all Habit / AMBIL SEMUA
-
+// GET semua habit milik user yang login
 const getAllHabits = async (req, res) => {
     try {
-        const habits = await Habit.findAll();
+        const habits = await Habit.findAll({
+            where: { userId: req.user.id }
+        });
         res.json(habits);
     } catch (err) {
-        res.status(500).json({error: 'Failed to fetch habits'});
+        console.error('GET /habits error:', err); 
+        res.status(500).json({ error: 'Gagal mengambil data habits' });
     }
 };
 
-// UNTUK new Habit / TAMBAH BARU
+// POST habit baru dengan userId dari token
 const createHabit = async (req, res) => {
     try {
-        const {title, frequency} = req.body;
-
+        const { title, frequency } = req.body;
+        const userId = req.user.id;
+        
         const newHabit = await Habit.create({
             title,
-            frequency
+            frequency,
+            userId // ✅ tambahkan ini
         });
 
         res.status(201).json(newHabit);
     } catch (err) {
-        res.status(500).json({error: 'Failed to fetch habits'});
+        res.status(500).json({ error: 'Gagal membuat habit' });
     }
 };
 
-// UNTUK update Habit / edit Habit
+// UPDATE habit
 const updateHabit = async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, frequency, is_completed } = req.body;
-
-
         const habit = await Habit.findByPk(id);
-        if(!habit) return res.status(404).json({ error: 'Habit not found'});
+        if (!habit) return res.status(404).json({ error: 'Habit tidak ditemukan' });
 
-        habit.title = title || habit.title;
-        habit.frequency = frequency || habit.frequency;
-        habit.is_completed = typeof is_completed === 'boolean' ? is_completed : habit.is_completed;
-
+        const { title, frequency, completed } = req.body;
+        habit.title = title ?? habit.title;
+        habit.frequency = frequency ?? habit.frequency;
+        habit.completed = completed ?? habit.completed;
 
         await habit.save();
-
         res.json(habit);
-    }catch (error) {
-        res.status(500).json({ error: 'failed to update habit'});
+    } catch (error) {
+        res.status(500).json({ error: 'Gagal mengupdate habit' });
     }
 };
 
-// UNTUK delete Habit / hapus Habit
+// DELETE habit
 const deleteHabit = async (req, res) => {
     try {
         const { id } = req.params;
-
         const habit = await Habit.findByPk(id);
-        if(!habit) return res.status(404).json({ error: 'Habit not found'});
+        if (!habit) return res.status(404).json({ error: 'Habit tidak ditemukan' });
 
         await habit.destroy();
-        res.json({ message: 'Habit deleted successfully' });
-    }catch (error) {
-        res.status(500).json({ error: 'failed to delete habit'});
+        res.json({ message: 'Habit berhasil dihapus' });
+    } catch (error) {
+        res.status(500).json({ error: 'Gagal menghapus habit' });
     }
 };
 
-
-    module.exports = {
-        getAllHabits,
-        createHabit,
-        updateHabit,
-        deleteHabit
-    };
+module.exports = {
+    getAllHabits,
+    createHabit,
+    updateHabit,
+    deleteHabit
+};
