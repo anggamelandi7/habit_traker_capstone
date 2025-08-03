@@ -16,6 +16,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: false,
     },
+
   });
 Habit.associate = (models) => {
     Habit.belongsTo(models.User, {

@@ -6,7 +6,8 @@ const app = express();
 const sequelize = require('./config/database');
 const authRoutes = require('./routes/auth');
 const habitRoutes = require('./routes/habitRoutes');
-const userRoutes = require('./routes/user'); // kalau kamu punya user detail lain
+const userRoutes = require('./routes/user'); 
+const rewardRoutes = require('./routes/rewardRoutes');
 
 // Middleware
 app.use(cors());
@@ -16,7 +17,8 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/auth', authRoutes);
 app.use('/habits', habitRoutes);
-app.use('/users', userRoutes); // opsional
+app.use('/users', userRoutes); 
+app.use('/rewards', rewardRoutes);
 
 // Sync DB & Start Server
 const PORT = process.env.PORT || 5000;

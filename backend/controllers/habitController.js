@@ -1,5 +1,4 @@
-const db = require('../models');
-const Habit = db.Habit;
+const { Habit, Reward } = require('../models');
 
 // GET semua habit milik user yang login
 const getAllHabits = async (req, res) => {
@@ -23,7 +22,7 @@ const createHabit = async (req, res) => {
         const newHabit = await Habit.create({
             title,
             frequency,
-            userId // ✅ tambahkan ini
+            userId 
         });
 
         res.status(201).json(newHabit);
@@ -32,7 +31,8 @@ const createHabit = async (req, res) => {
     }
 };
 
-// UPDATE habit
+
+// UPDATE habit + Tambahkan reward jika completed berubah dari false menjadi true
 const updateHabit = async (req, res) => {
     try {
         const { id } = req.params;
@@ -40,15 +40,36 @@ const updateHabit = async (req, res) => {
         if (!habit) return res.status(404).json({ error: 'Habit tidak ditemukan' });
 
         const { title, frequency, completed } = req.body;
+
+        // Cek apakah habit sebelumnya belum selesai
+        const wasCompleted = habit.completed;
+
+        // Update data habit
         habit.title = title ?? habit.title;
         habit.frequency = frequency ?? habit.frequency;
         habit.completed = completed ?? habit.completed;
 
         await habit.save();
-        res.json(habit);
-    } catch (error) {
-        res.status(500).json({ error: 'Gagal mengupdate habit' });
+
+        // Jika user menyelesaikan habit sekarang (dari false → true), buat reward
+        if (!wasCompleted && completed === true) {
+      try {
+        await Reward.create({
+            name: `Reward "${habit.title}"`,
+            description: `Reward for completing habit "${habit.title}"`,points: 10,
+            userId: req.user.id
+        });
+        console.log('Reward berhasil ditambahkan');
+      } catch (err) {
+        console.error('Gagal menambahkan reward:', err);
+      }
     }
+
+    res.json(habit);
+  } catch (error) {
+    console.error('PUT /habits/:id error:', error);
+    res.status(500).json({ error: 'Gagal mengupdate habit' });
+  }
 };
 
 // DELETE habit

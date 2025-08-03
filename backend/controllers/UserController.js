@@ -13,9 +13,6 @@ class UserController {
         email,
         password: hashedPassword,
       });
-
-      console.log("REGISTER:", { hashedPassword, saved: user.password });
-
       res.status(201).json({
         message: "User registered",
         user: { id: user.id, email: user.email },
@@ -34,8 +31,6 @@ class UserController {
 
       const match = await bcrypt.compare(password, user.password);
 
-      console.log("LOGIN:", { input: password, hashed: user.password, match });
-
       if (!match) return res.status(401).json({ error: "Invalid email/password" });
 
       const token = jwt.sign({ id: user.id, email: user.email }, "goodgame", { expiresIn: "1d" });
@@ -43,6 +38,22 @@ class UserController {
       res.json({ message: "Login success", token });
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  }
+
+
+static async getProfile(req, res) {
+    try {
+      const user = await User.findByPk(req.user.id, {
+        attributes: ['id', 'username', 'email', 'badge'] 
+      });
+
+      if (!user) return res.status(404).json({ error: 'User tidak ditemukan' });
+
+      res.json(user);
+    } catch (err) {
+      console.error('GET /users/me error:', err);
+      res.status(500).json({ error: 'Gagal mengambil data user' });
     }
   }
 }

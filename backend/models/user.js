@@ -17,13 +17,22 @@ module.exports = (sequelize, DataTypes) => {
     password: {
       type: DataTypes.STRING,
       allowNull: false,
-    }
+    },
+    badge: {
+  type: DataTypes.STRING,
+  allowNull: true
+}
+    
   });
   User.associate = (models) => {
   User.hasMany(models.Habit, {
     foreignKey: "userId",
     onDelete: "CASCADE",
   });
+  User.hasMany(models.Reward, {
+  foreignKey: 'userId',
+  onDelete: 'CASCADE'
+});
 };
 
   return User;
