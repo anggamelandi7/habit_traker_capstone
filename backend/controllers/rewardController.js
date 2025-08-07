@@ -1,60 +1,62 @@
-const { Reward, User } = require('../models'); 
+const { RewardList, RewardClaim, User } = require('../models');
 
-const getUserRewards = async (req, res) => {
+// Ambil semua reward yang tersedia dari RewardList
+const getAllRewards = async (req, res) => {
   try {
-    const rewards = await Reward.findAll({
+    const rewards = await RewardList.findAll();
+    res.json(rewards);
+  } catch (err) {
+    console.error('GET /rewards error:', err);
+    res.status(500).json({ error: 'Gagal mengambil daftar reward' });
+  }
+};
+
+// Klaim reward tertentu dari daftar
+const claimReward = async (req, res) => {
+  try {
+    const reward = await RewardList.findByPk(req.params.id);
+    if (!reward) return res.status(404).json({ error: 'Reward tidak ditemukan' });
+
+    const user = await User.findByPk(req.user.id);
+    if (user.totalPoints < reward.points) {
+      return res.status(400).json({ error: 'Point tidak cukup untuk klaim reward ini' });
+    }
+
+    // Kurangi point user
+    user.totalPoints -= reward.points;
+    await user.save();
+
+    // Simpan ke tabel klaim
+    await RewardClaim.create({
+      userId: user.id,
+      rewardName: reward.name,
+      points: reward.points
+    });
+
+    res.json({ message: 'Reward berhasil diklaim!' });
+  } catch (err) {
+    console.error('POST /rewards/claim error:', err);
+    res.status(500).json({ error: 'Gagal klaim reward' });
+  }
+};
+
+// Ambil riwayat klaim reward
+const getRewardHistory = async (req, res) => {
+  try {
+    const history = await RewardClaim.findAll({
       where: { userId: req.user.id },
       order: [['createdAt', 'DESC']]
     });
 
-
-    res.json(rewards);
+    res.json(history);
   } catch (err) {
-    console.error('GET /rewards error:', err);
-    res.status(500).json({ error: 'Gagal mengambil data rewards' });
-  }
-};
-
-const getTotalPoints = async (req, res) => {
-  try {
-    const { Reward } = require('../models');
-    const rewards = await Reward.findAll({
-      where: { userId: req.user.id }
-    });
-
-    const totalPoints = rewards.reduce((sum, reward) => sum + reward.points, 0);
-
-    // Tentukan badge berdasarkan total poin
-    let badge = null;
-
-if (totalPoints >= 100) {
-  badge = 'Master Habit';
-} else if (totalPoints >= 50) {
-  badge = 'Disiplin';
-} else if (totalPoints < 50) {
-  badge = 'Semangat lagi';
-} else {
-  badge = null;
-}
-
-
-    // Update badge user
-    await User.update(
-      { badge },
-      { where: { id: req.user.id } }
-    );
-
-    res.json({ 
-        totalPoints,
-        badge
-     });
-  } catch (err) {
-    console.error('GET /rewards/total error:', err);
-    res.status(500).json({ error: 'Gagal menghitung total poin' });
+    console.error('GET /rewards/history error:', err);
+    res.status(500).json({ error: 'Gagal mengambil riwayat reward' });
   }
 };
 
 module.exports = {
-  getUserRewards,
-  getTotalPoints
+  getAllRewards,
+  claimReward,
+  getRewardHistory
 };

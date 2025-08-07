@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+
 require('dotenv').config();
 
 const app = express();
@@ -8,6 +9,7 @@ const authRoutes = require('./routes/auth');
 const habitRoutes = require('./routes/habitRoutes');
 const userRoutes = require('./routes/user'); 
 const rewardRoutes = require('./routes/rewardRoutes');
+// const seedRoutes = require('./routes/seed');
 
 // Middleware
 app.use(cors());
@@ -18,7 +20,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/auth', authRoutes);
 app.use('/habits', habitRoutes);
 app.use('/users', userRoutes); 
-app.use('/rewards', rewardRoutes);
+app.use('/rewards', require('./routes/rewardRoutes'));
+
+// app.use('/seed', seedRoutes);
 
 // Sync DB & Start Server
 const PORT = process.env.PORT || 5000;

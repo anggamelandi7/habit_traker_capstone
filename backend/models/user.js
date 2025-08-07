@@ -19,10 +19,14 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
     },
     badge: {
-  type: DataTypes.STRING,
-  allowNull: true
-}
-    
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+      totalPoints: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    }
+   
   });
   User.associate = (models) => {
   User.hasMany(models.Habit, {

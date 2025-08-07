@@ -1,24 +1,15 @@
-// models/reward.js
-
+// models/Reward.js
 module.exports = (sequelize, DataTypes) => {
   const Reward = sequelize.define('Reward', {
-    name: { 
+    name: {
       type: DataTypes.STRING,
-      allowNull: false
-    },
-    description: {
-      type: DataTypes.STRING,
-      allowNull: false
+      allowNull: false,
     },
     points: {
       type: DataTypes.INTEGER,
-      allowNull: false
+      allowNull: false,
     }
   });
-
-  Reward.associate = (models) => {
-    Reward.belongsTo(models.User, { foreignKey: 'userId' });
-  };
 
   return Reward;
 };

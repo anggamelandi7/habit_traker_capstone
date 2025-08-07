@@ -7,4 +7,6 @@ router.get('/', verifyToken, habitController.getAllHabits);
 router.post('/', verifyToken, habitController.createHabit);
 router.put('/:id', verifyToken, habitController.updateHabit);
 router.delete('/:id', verifyToken, habitController.deleteHabit);
+router.get('/summary', verifyToken, habitController.getHabitSummary);
+router.get('/progress', verifyToken, habitController.getHabitProgress);
 module.exports = router;

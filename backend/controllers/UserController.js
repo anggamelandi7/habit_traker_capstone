@@ -45,7 +45,7 @@ class UserController {
 static async getProfile(req, res) {
     try {
       const user = await User.findByPk(req.user.id, {
-        attributes: ['id', 'username', 'email', 'badge'] 
+        attributes: ['id', 'username', 'email', 'badge', 'totalPoints'] 
       });
 
       if (!user) return res.status(404).json({ error: 'User tidak ditemukan' });
