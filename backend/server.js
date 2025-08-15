@@ -9,6 +9,8 @@ const authRoutes = require('./routes/auth');
 const habitRoutes = require('./routes/habitRoutes');
 const userRoutes = require('./routes/user'); 
 const rewardRoutes = require('./routes/rewardRoutes');
+const pointRoutes  = require('./routes/points');
+const achievementRoutes = require('./routes/achievementRoutes');
 // const seedRoutes = require('./routes/seed');
 
 // Middleware
@@ -20,7 +22,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/auth', authRoutes);
 app.use('/habits', habitRoutes);
 app.use('/users', userRoutes); 
-app.use('/rewards', require('./routes/rewardRoutes'));
+app.use('/rewards', rewardRoutes);
+app.use('/points', pointRoutes);
+app.use('/achievements', achievementRoutes);
 
 // app.use('/seed', seedRoutes);
 

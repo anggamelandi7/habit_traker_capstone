@@ -5,6 +5,7 @@ const Sidebar = () => {
   const menu = [
     { label: 'Dashboard', path: '/dashboard' },
     { label: 'Habits', path: '/habits' },
+    { label: 'Achievements', path: '/achievements' },
     { label: 'Rewards', path: '/rewards' },
     { label: 'Statistik', path: '/stats' },
     { label: 'Logout', path: '/logout' }
@@ -23,6 +24,7 @@ const Sidebar = () => {
                 isActive ? 'bg-indigo-100 text-indigo-700 font-semibold' : 'text-gray-700'
               }`
             }
+            aria-current={({ isActive }) => (isActive ? 'page' : undefined)}
           >
             {item.label}
           </NavLink>

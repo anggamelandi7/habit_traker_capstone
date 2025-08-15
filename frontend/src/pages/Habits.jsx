@@ -1,206 +1,139 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import API from '../utils/api';
-import MainLayout from '../components/Layout/MainLayout';
-import { FaCheckCircle, FaRegCircle, FaTrash } from 'react-icons/fa';
-import { DateTime } from 'luxon';
+import { getHabits, completeHabit, createHabit } from '../api/habits';
+import { listAchievements, addHabitToAchievement } from '../api/achievements';
 
 export default function Habits() {
-  const [habits, setHabits] = useState([]);
-  const [title, setTitle] = useState('');
-  const [frequency, setFrequency] = useState('Daily');
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const [items, setItems] = useState([]);
+  const [achievements, setAchievements] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState(null);
 
-  const navigate = useNavigate();
+  // form tambah habit
+  const [form, setForm] = useState({
+    title: '',
+    frequency: 'Daily',
+    pointsPerCompletion: 10,
+    achievementId: '' // '' = tanpa pencapaian
+  });
 
-  const fetchHabits = async () => {
+  const load = async () => {
+    setLoading(true);
     try {
-      const res = await API.get('/habits');
-      setHabits(res.data);
-    } catch (err) {
-      alert('Session expired. Silakan login ulang.');
-      localStorage.removeItem('token');
-      navigate('/login');
-    }
+      const [habits, achs] = await Promise.all([
+        getHabits(),
+        listAchievements().catch(()=>[]) // kalau belum ada achievements
+      ]);
+      setItems(Array.isArray(habits) ? habits : []);
+      setAchievements(Array.isArray(achs) ? achs : []);
+    } catch (e) {
+      setMsg(e?.error || 'Gagal memuat habits');
+    } finally { setLoading(false); }
   };
 
-  const addHabit = async (e) => {
+  useEffect(()=>{ load(); }, []);
+
+  const onCreate = async (e) => {
     e.preventDefault();
-
     try {
-      const now = DateTime.now().setZone('Asia/Jakarta');
-      const start = now.toISO(); // simpan ISO lengkap
-      const end = now.plus({ days: frequency === 'Daily' ? 1 : 7 }).toISODate(); // hanya tanggal
+      const payload = {
+        title: form.title,
+        frequency: form.frequency,
+        pointsPerCompletion: Number(form.pointsPerCompletion || 0),
+      };
 
-      console.log('Waktu tambah habit:', now.toFormat("dd/MM/yyyy • hh.mm a"));
+      if (form.achievementId) {
+        await addHabitToAchievement(Number(form.achievementId), payload);
+      } else {
+        await createHabit(payload);
+      }
 
-      await API.post('/habits', {
-        title,
-        frequency,
-        startDate: start,
-        endDate: end
-      });
-
-      setTitle('');
-      setFrequency('Daily');
-      fetchHabits();
-    } catch (err) {
-      alert('Gagal menambah habit');
-    }
+      setForm({ title:'', frequency:'Daily', pointsPerCompletion:10, achievementId:'' });
+      await load();
+      setMsg('Habit dibuat');
+    } catch (e) { setMsg(e?.error || 'Gagal membuat habit'); }
   };
 
-  const toggleCompleted = async (habit) => {
-    const confirmed = window.confirm('Apakah kamu yakin sudah menyelesaikan habit ini?');
-    if (!confirmed) return;
-
+  const onComplete = async (h) => {
     try {
-      await API.put(`/habits/${habit.id}`, {
-        ...habit,
-        completed: !habit.completed
-      });
-      fetchHabits();
-    } catch (err) {
-      alert('Gagal update habit');
-    }
-  };
-
-  const deleteHabit = async (id) => {
-    try {
-      await API.delete(`/habits/${id}`);
-      fetchHabits();
-    } catch (err) {
-      alert('Gagal menghapus habit');
-    }
-  };
-
-  useEffect(() => {
-    fetchHabits();
-
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  const total = habits.length;
-  const completed = habits.filter(h => h.completed).length;
-  const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-  const getDaysRemaining = (endDate) => {
-    if (!endDate) return null;
-    const today = DateTime.now().setZone('Asia/Jakarta').startOf('day');
-    const end = DateTime.fromISO(endDate).setZone('Asia/Jakarta').startOf('day');
-    return Math.ceil(end.diff(today, 'days').days);
+      const res = await completeHabit(h.id);
+      setMsg(`✔ ${h.title} — +${res.addedPoints} poin. Total: ${res.newBalance}`);
+      await load();
+    } catch (e) { setMsg(e?.error || 'Gagal menyelesaikan habit'); }
   };
 
   return (
-    <MainLayout>
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-indigo-700">📋 Habit Harian Anda</h1>
-        <p className="text-gray-600">Kelola dan selesaikan habit Anda setiap hari!</p>
-      </div>
+    <div style={{padding:16}}>
+      <h2 className="text-xl font-semibold mb-3">Habits</h2>
 
-      {/* Progress Bar */}
-      <div className="bg-white p-4 rounded shadow mb-6 max-w-xl">
-        <div className="flex justify-between items-center mb-2">
-          <span className="text-sm font-medium text-indigo-700">Progress</span>
-          <span className="text-sm font-semibold text-indigo-600">{percentage}%</span>
-        </div>
-        <div className="w-full h-3 bg-gray-200 rounded-full">
-          <div className="h-full bg-indigo-600 rounded-full" style={{ width: `${percentage}%` }}></div>
-        </div>
-      </div>
-
-      {/* Form Tambah Habit */}
-      <form onSubmit={addHabit} className="bg-white p-4 rounded shadow mb-6 max-w-md">
-        <h2 className="text-xl font-semibold mb-3">Tambah Habit</h2>
+      {/* Form tambah habit */}
+      <form onSubmit={onCreate} className="flex flex-wrap items-center gap-3 mb-4">
         <input
-          type="text"
-          placeholder="Nama Habit"
-          className="w-full mb-3 px-3 py-2 border rounded"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          className="border rounded px-3 py-2"
+          placeholder="Nama habit"
+          value={form.title}
+          onChange={e=>setForm({...form, title:e.target.value})}
           required
         />
         <select
-          className="w-full mb-3 px-3 py-2 border rounded"
-          value={frequency}
-          onChange={(e) => setFrequency(e.target.value)}
+          className="border rounded px-3 py-2"
+          value={form.frequency}
+          onChange={e=>setForm({...form, frequency:e.target.value})}
         >
-          <option value="Daily">Daily</option>
-          <option value="Weekly">Weekly</option>
+          <option>Daily</option>
+          <option>Weekly</option>
         </select>
-        <button
-          type="submit"
-          className="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 transition"
+        <input
+          className="border rounded px-3 py-2 w-32"
+          type="number" min="0"
+          placeholder="Poin"
+          value={form.pointsPerCompletion}
+          onChange={e=>setForm({...form, pointsPerCompletion:e.target.value})}
+        />
+
+        {/* Dropdown Assign ke Achievement */}
+        <select
+          className="border rounded px-3 py-2"
+          value={form.achievementId}
+          onChange={e=>setForm({...form, achievementId:e.target.value})}
         >
+          <option value="">— Tanpa Pencapaian —</option>
+          {achievements.map(a => (
+            <option key={a.id} value={a.id}>{a.name} (target {a.targetPoints})</option>
+          ))}
+        </select>
+
+        <button className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">
           Tambah
         </button>
       </form>
 
-      {/* List Habit */}
-      <div className="grid gap-4 max-w-xl">
-        {habits.length === 0 ? (
-          <p className="text-gray-500">Belum ada habit.</p>
-        ) : (
-          habits.map((habit) => {
-            const remaining = getDaysRemaining(habit.endDate);
-
-            const startLuxon = DateTime.fromISO(habit.startDate).setZone('Asia/Jakarta');
-            const startDateFormatted = habit.startDate
-              ? `${startLuxon.toFormat('d/M/yyyy')} • ${startLuxon.toFormat('hh.mm a')}`
-              : '-';
-
-            return (
-              <div
-                key={habit.id}
-                className="flex justify-between items-center bg-white px-4 py-3 rounded shadow"
-              >
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => toggleCompleted(habit)}
-                    className="text-xl text-green-600 hover:text-green-700 transition"
-                    title="Tandai selesai"
-                  >
-                    {habit.completed ? <FaCheckCircle /> : <FaRegCircle />}
-                  </button>
-                  <div>
-                    <span
-                      className={`block ${
-                        habit.completed ? 'line-through text-gray-400' : 'text-gray-800'
-                      }`}
-                    >
-                      {habit.title}
-                      <span className="text-sm text-gray-500 ml-2">({habit.frequency})</span>
+      {msg && <div className="mb-3 p-2 border rounded text-sm">{msg}</div>}
+      {loading ? <p>memuat…</p> : (
+        <div className="grid gap-2">
+          {items.map(h => (
+            <div key={h.id} className="flex items-center justify-between border rounded p-3">
+              <div>
+                <div className="font-semibold">{h.title}</div>
+                <div className="text-xs text-gray-600">
+                  {h.frequency} • +{h.pointsPerCompletion} poin
+                  {h.achievementId ? (
+                    <span className="ml-2 px-2 py-0.5 text-xs rounded bg-indigo-50 border border-indigo-200">
+                      Card #{h.achievementId}
                     </span>
-
-                    <span className="text-xs text-gray-500 block">
-                      Start: {startDateFormatted} <br />
-                      End: {habit.endDate || '-'}
-                    </span>
-
-                    {habit.endDate && (
-                      <span className={`text-xs ${remaining < 0 ? 'text-red-500' : 'text-gray-600'}`}>
-                        {remaining < 0
-                          ? `❌ Terlambat ${Math.abs(remaining)} hari`
-                          : `⏳ Sisa ${remaining} hari`}
-                      </span>
-                    )}
-                  </div>
+                  ) : null}
                 </div>
-                <button
-                  onClick={() => deleteHabit(habit.id)}
-                  className="text-red-500 hover:text-red-700 transition"
-                  title="Hapus habit"
-                >
-                  <FaTrash />
-                </button>
               </div>
-            );
-          })
-        )}
-      </div>
-    </MainLayout>
+              <button
+                onClick={()=>onComplete(h)}
+                className="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700"
+              >
+                Selesai
+              </button>
+            </div>
+          ))}
+          {items.length===0 && <div className="text-gray-500">Belum ada habit. Tambahkan di atas.</div>}
+        </div>
+      )}
+    </div>
   );
 }

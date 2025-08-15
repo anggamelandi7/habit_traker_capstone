@@ -1,97 +1,126 @@
 import { useEffect, useState } from 'react';
-import API from '../utils/api';
-import MainLayout from '../components/Layout/MainLayout';
+import { Link } from 'react-router-dom';
+import { listAchievements, claimAchievement } from '../api/achievements';
 
 export default function Rewards() {
-  const [rewards, setRewards] = useState([]);
-  const [user, setUser] = useState({});
-  const [message, setMessage] = useState('');
-  const [loadingId, setLoadingId] = useState(null);
+  const [items, setItems] = useState([]);
+  const [msg, setMsg] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const fetchData = async () => {
+  const load = async () => {
+    setLoading(true);
     try {
-      const [resUser, resRewards] = await Promise.all([
-        API.get('/users/me'),
-        API.get('/rewards')
-      ]);
-      setUser(resUser.data);
-      setRewards(resRewards.data);
-    } catch (err) {
-      alert('Session expired. Silakan login ulang.');
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-    }
-  };
-
-  const handleClaim = async (rewardId) => {
-    setLoadingId(rewardId);
-    setMessage('');
-
-    try {
-      const res = await API.post(`/rewards/claim/${rewardId}`);
-      setMessage(res.data.message || 'Reward berhasil diklaim!');
-      fetchData(); // refresh points + reward list
-    } catch (err) {
-      setMessage(err.response?.data?.error || 'Gagal klaim reward');
+      const data = await listAchievements();
+      setItems(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setMsg(e?.error || 'Gagal memuat data pencapaian');
     } finally {
-      setLoadingId(null);
+      setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { load(); }, []);
+
+  const onClaim = async (card) => {
+    try {
+      await claimAchievement(card.id);
+      setMsg(`Berhasil klaim: ${card.name}`);
+      await load();
+    } catch (e) {
+      setMsg(e?.error || 'Gagal klaim pencapaian');
+    }
+  };
 
   return (
-    <MainLayout>
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-indigo-700">🎁 Rewards</h1>
-        <p className="text-gray-600">Tukar poinmu dengan reward yang tersedia.</p>
-      </div>
-
-      <div className="mb-4 p-4 bg-white rounded shadow max-w-sm">
-        <span className="text-gray-700 font-semibold">Total Poin Kamu:</span>
-        <h2 className="text-2xl font-bold text-indigo-600">{user.totalPoints ?? 0}</h2>
-      </div>
-
-      {message && (
-        <div className="mb-4 p-3 bg-yellow-100 border border-yellow-300 text-yellow-700 rounded">
-          {message}
+    <div className="space-y-6">
+      {/* Header + CTA */}
+      <div className="bg-white rounded-2xl shadow p-6 flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Monitor Pencapaian</h2>
+          <p className="text-gray-600 text-sm">
+            Lihat progres pencapaianmu dan klaim hadiah saat poin sudah mencukupi.
+          </p>
         </div>
-      )}
+        <Link
+          to="/achievements"
+          className="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700 transition"
+        >
+          + Buat / Kelola Pencapaian
+        </Link>
+      </div>
 
-      <div className="grid gap-4 max-w-xl">
-        {rewards.length === 0 ? (
-          <p className="text-gray-500">Belum ada reward tersedia.</p>
-        ) : (
-          rewards.map((reward) => {
-            const canClaim = (user.totalPoints ?? 0) >= reward.points;
+      {msg && <div className="p-2 border rounded text-sm">{msg}</div>}
+      {loading ? (
+        <div>Memuat…</div>
+      ) : (
+        <div className="grid md:grid-cols-2 gap-6">
+          {items.map(card => {
+            const balance = Number(card?.stats?.pointBalance ?? 0);
+            const target  = Number(card?.targetPoints ?? 0);
+            const canClaim = balance >= target && target > 0;
+            const percent = Number(card?.stats?.progressPercent ?? 0);
+            const remaining = Number(card?.stats?.remainingPoints ?? 0);
+            const contributed = Number(card?.stats?.contributedPoints ?? 0);
 
             return (
-              <div
-                key={reward.id}
-                className="flex justify-between items-center bg-white px-4 py-3 rounded shadow"
-              >
-                <div>
-                  <h3 className="font-semibold text-gray-800">{reward.name}</h3>
-                  <p className="text-sm text-gray-500">🎯 {reward.points} poin</p>
+              <div key={card.id} className="bg-white rounded-2xl shadow p-6">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <h3 className="text-lg font-semibold">{card.name}</h3>
+                    <p className="text-gray-500 text-sm">Target: {target} poin</p>
+                  </div>
+                  <button
+                    onClick={() => onClaim(card)}
+                    disabled={!canClaim}
+                    className={`px-3 py-1 rounded ${
+                      canClaim
+                        ? 'bg-green-600 text-white hover:bg-green-700'
+                        : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                    }`}
+                  >
+                    Klaim
+                  </button>
                 </div>
-                <button
-                  onClick={() => handleClaim(reward.id)}
-                  disabled={!canClaim || loadingId === reward.id}
-                  className={`px-4 py-2 rounded text-sm font-medium transition ${
-                    canClaim
-                      ? 'bg-indigo-600 text-white hover:bg-indigo-700'
-                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  }`}
-                >
-                  {loadingId === reward.id ? 'Memproses...' : 'Klaim'}
-                </button>
+
+                {/* progress */}
+                <div className="mb-2">
+                  <div className="h-2 bg-gray-200 rounded">
+                    <div
+                      className="h-2 bg-indigo-600 rounded"
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+                  <div className="text-xs text-gray-600 mt-1">
+                    Saldo: {balance} • Kontribusi Card: {contributed} • Sisa: {remaining}
+                  </div>
+                </div>
+
+                {/* ringkas habits */}
+                <div className="mt-3">
+                  <div className="font-medium mb-2">Habits</div>
+                  {card.habits?.length ? (
+                    <ul className="text-sm list-disc list-inside space-y-1">
+                      {card.habits.map(h => (
+                        <li key={h.id}>
+                          {h.title} • {h.frequency} • +{h.pointsPerCompletion}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="text-gray-500 text-sm">Belum ada habit di card ini</div>
+                  )}
+                </div>
               </div>
             );
-          })
-        )}
-      </div>
-    </MainLayout>
+          })}
+          {items.length === 0 && (
+            <div className="text-gray-500">
+              Belum ada pencapaian. Buat dulu di halaman&nbsp;
+              <Link to="/achievements" className="text-indigo-600 underline">Achievements</Link>.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
