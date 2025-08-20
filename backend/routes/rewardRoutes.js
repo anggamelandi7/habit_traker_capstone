@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 
 const verifyToken = require('../middlewares/authMiddleware'); // default export => function
-const rewardController = require('../controllers/rewardController'); // unified controller
+const rewardController = require('../controllers/rewardClaimController'); // unified controller
 
 // CREATE reward
 router.post('/', verifyToken, rewardController.createReward);

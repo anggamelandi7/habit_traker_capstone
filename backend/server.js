@@ -11,6 +11,7 @@ const userRoutes = require('./routes/user');
 const rewardRoutes = require('./routes/rewardRoutes');
 const pointRoutes  = require('./routes/points');
 const achievementRoutes = require('./routes/achievementRoutes');
+const history = require('./routes/historyRoutes');
 // const seedRoutes = require('./routes/seed');
 
 // Middleware
@@ -25,6 +26,7 @@ app.use('/users', userRoutes);
 app.use('/rewards', rewardRoutes);
 app.use('/points', pointRoutes);
 app.use('/achievements', achievementRoutes);
+app.use('/history', history);
 
 // app.use('/seed', seedRoutes);
 

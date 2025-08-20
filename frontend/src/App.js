@@ -10,6 +10,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Logout from './pages/Logout';
 import Achievements from './pages/Achievements';
+import Profile from './pages/Profile';
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="/rewards" element={<Rewards />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/achievements" element={<Achievements />} /> 
+           <Route path="/profile" element={<Profile />} />
           <Route path="/logout" element={<Logout />} />
 
           {/* default & fallback */}

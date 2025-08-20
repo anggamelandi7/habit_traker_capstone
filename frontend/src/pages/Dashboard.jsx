@@ -1,201 +1,343 @@
-
-import { useEffect, useState } from 'react';
+// src/pages/Dashboard.jsx
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getHabits } from '../api/habits';
-import { getLedgerSummary, claimReward } from '../api/rewards';
-import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer
-} from 'recharts';
+import { getRewards } from '../api/rewards';
 
-// helper: ambil label minggu (Senin awal minggu) di WIB
-function weekLabelWIB(dateIso) {
-  const d = new Date(dateIso);
-  // paksa ke WIB (tanpa lib, cukup tampilkan DD/MM)
-  const opts = { timeZone: 'Asia/Jakarta', day: '2-digit', month: '2-digit' };
-  return new Intl.DateTimeFormat('en-GB', opts).format(d); // e.g. 13/08
+const HERO_DESKTOP = '/images/dashboard-page.jpg';
+const HERO_MOBILE  = '/images/dashboard-page.jpg';
+
+/* ====== WIB helpers (cek “hari ini” secara robust) ====== */
+function wibYMD(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+const TODAY_WIB = wibYMD();
+
+/* Cek apakah habit selesai “hari ini”.
+   - Gunakan beragam key yang mungkin dipakai backend/UI habits.
+   - Jika tidak ada sinyal yang meyakinkan, return null (unknown). */
+function isDoneToday(h) {
+  // 1) boolean flags
+  const boolKeys = ['doneToday', 'completedToday', 'isCompletedToday', 'isDoneToday', 'todayDone'];
+  for (const k of boolKeys) {
+    if (h?.hasOwnProperty(k)) return Boolean(h[k]);
+  }
+
+  // 2) cap waktu terakhir selesai
+  const dateKeys = ['doneAt', 'completedAt', 'lastCompletedAt', 'lastDoneAt', 'lastCheckInAt'];
+  for (const k of dateKeys) {
+    const v = h?.[k];
+    if (!v) continue;
+    const d = new Date(v);
+    if (!isNaN(d)) {
+      if (wibYMD(d) === TODAY_WIB) return true;
+    }
+  }
+
+  // 3) daftar penyelesaian (beragam bentuk)
+  const lists = [
+    h?.completions,
+    h?.completionDates,
+    h?.doneDates,
+    h?.history,
+  ].filter(Boolean);
+
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    // elemen bisa berupa string tanggal atau objek {date: "..."}
+    for (const item of list) {
+      const val = typeof item === 'string' ? item : (item?.date || item?.at || item?.completedAt);
+      if (!val) continue;
+      const d = new Date(val);
+      if (!isNaN(d) && wibYMD(d) === TODAY_WIB) return true;
+    }
+  }
+
+  // 4) tidak ada sinyal yang bisa dipakai
+  return null;
+}
+
+/* Hitung pending + apakah perhitungannya “reliable” */
+function countPendingTodayInfo(habits) {
+  if (!Array.isArray(habits) || habits.length === 0) return { pending: 0, reliable: true };
+  let known = 0;
+  let undone = 0;
+  for (const h of habits) {
+    const d = isDoneToday(h);
+    if (d === null) continue; // unknown
+    known++;
+    if (!d) undone++;
+  }
+  if (known > 0) return { pending: undone, reliable: true };
+  // tidak ada sinyal yang jelas → jangan nebak
+  return { pending: 0, reliable: false };
 }
 
 export default function Dashboard() {
   const navigate = useNavigate();
+
   const [loading, setLoading] = useState(true);
-  const [summaryHabits, setSummaryHabits] = useState({ total: 0, completed: 0, pending: 0 });
-  const [progress, setProgress] = useState([]); // [{week: 'DD/MM', completed: n}]
-  const [username, setUsername] = useState(''); // opsional: bisa simpan di localStorage saat login
+  const [habits, setHabits] = useState([]);
   const [points, setPoints] = useState(0);
-  const [rewardsHistory, setRewardsHistory] = useState([]);
-  const [bestClaimable, setBestClaimable] = useState(null);
-  const [msg, setMsg] = useState(null);
+  const [hasClaimable, setHasClaimable] = useState(false);
+  const [msg, setMsg] = useState('');
 
-  const load = async () => {
-    setLoading(true);
+  // “baru saja klaim” → tampilkan CTA target baru
+  const [justClaimed, setJustClaimed] = useState(
+    () => sessionStorage.getItem('justClaimed') === '1'
+  );
+
+  // username untuk sapaan
+  const [username, setUsername] = useState(() => {
     try {
-      // 1) Habits
-      const habits = await getHabits();
-      const total = Array.isArray(habits) ? habits.length : 0;
-      // Saat ini tidak ada flag completed per hari di FE; tampilkan pending=total
-      setSummaryHabits({ total, completed: 0, pending: total });
+      const raw = localStorage.getItem('user');
+      const u = raw ? JSON.parse(raw) : null;
+      return u?.username || u?.name || '';
+    } catch { return ''; }
+  });
 
-      // 2) Ledger summary + items
-      const ledger = await getLedgerSummary();
-      const sum = ledger?.summary || {};
-      setPoints(sum.totalBalance ?? 0);
-      setBestClaimable(sum.rewardProgress?.bestClaimable || null);
+  const { pending, reliable } = useMemo(() => countPendingTodayInfo(habits), [habits]);
+  const isNewUser = useMemo(
+    () => (habits?.length || 0) === 0 && (points || 0) <= 0,
+    [habits, points]
+  );
 
-      // 2a) Grafik progres mingguan → hitung dari ledger items (+delta dari habit completion)
-      const items = Array.isArray(ledger?.items) ? ledger.items : [];
-      const byWeek = new Map();
-      for (const it of items) {
-        if (it.delta > 0 && it.habit) {
-          const label = weekLabelWIB(it.atUTC);
-          byWeek.set(label, (byWeek.get(label) || 0) + 1);
-        }
+  async function fetchMeIfNeeded() {
+    if (username) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch('http://localhost:5000/users/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const me = await res.json();
+        const name = me?.username || me?.name || '';
+        if (name) setUsername(name);
+        try { localStorage.setItem('user', JSON.stringify(me)); } catch {}
       }
-      const prog = Array.from(byWeek.entries())
-        .map(([week, completed]) => ({ week, completed }))
-        .slice(-8);
-      setProgress(prog);
+    } catch {}
+  }
 
-      // 2b) Riwayat reward → dari ledger items delta negatif (klaim)
-      const history = items
-        .filter(it => it.delta < 0 && it.reward)
-        .map(it => ({
-          name: it.reward.name,
-          points: Math.abs(it.delta),
-          at: it.atWIB
-        }));
-      setRewardsHistory(history);
+  async function load() {
+    setLoading(true);
+    setMsg('');
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return navigate('/login');
 
-      // 3) Username (opsional): kalau disimpan saat login, ambil di sini
-      const u = localStorage.getItem('username');
-      if (u) setUsername(u);
+      await fetchMeIfNeeded();
 
+      const hs = await getHabits();
+      setHabits(Array.isArray(hs) ? hs : []);
+
+      const rewardsRes = await getRewards(); // { balance, items: [...] }
+      const balance = Number(rewardsRes?.balance || 0);
+      setPoints(balance);
+      const claimables = (rewardsRes?.items || []).filter((r) => r?.claimable);
+      setHasClaimable(claimables.length > 0);
     } catch (e) {
+      setMsg(e?.error || 'Gagal memuat dashboard.');
       if (e?.status === 401) {
         localStorage.removeItem('token');
-        setMsg('Session expired. Silakan login ulang.');
         navigate('/login');
-      } else {
-        setMsg(e?.error || 'Gagal memuat dashboard.');
       }
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return navigate('/login');
     load();
+    const onClaimed = () => {
+      setJustClaimed(true);
+      sessionStorage.setItem('justClaimed', '1');
+    };
+    window.addEventListener('reward-claimed', onClaimed);
+    return () => window.removeEventListener('reward-claimed', onClaimed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onClaimBest = async () => {
-    if (!bestClaimable) return;
-    try {
-      await claimReward(bestClaimable.id);
-      setMsg(`Berhasil klaim: ${bestClaimable.name}`);
-      await load();
-    } catch (e) {
-      setMsg(e?.error || 'Gagal klaim reward');
-    }
+  const clearJustClaimed = () => {
+    setJustClaimed(false);
+    sessionStorage.removeItem('justClaimed');
   };
 
   if (loading) return null;
 
+  const showWelcomeCTA = isNewUser || justClaimed;
+
   return (
-    <div>
-      {msg && <div className="mb-4 p-3 border rounded text-sm">{msg}</div>}
-
-      {/* HERO / GUIDE */}
-      <div className="bg-white rounded-2xl shadow p-6 mb-6">
-        <h1 className="text-2xl md:text-3xl font-bold text-blue-900">
-          Selamat datang di Habit Tracker App 🎉
-        </h1>
-        <p className="text-gray-600 mt-2">
-          Ayo buat pencapaian dengan menyelesaikan habitmu. Tentukan target poin (pencapaian),
-          susun habit-habit pendukung, kumpulkan poin, lalu klaim hadiahnya!
-        </p>
-
-        <div className="flex flex-wrap gap-3 mt-4">
-          <Link
-            to="/achievements"
-            className="inline-flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700 transition"
-          >
-            🚀 Buat Pencapaian
-          </Link>
-          <Link
-            to="/habits"
-            className="inline-flex items-center gap-2 border border-indigo-200 text-indigo-700 px-4 py-2 rounded-full hover:bg-indigo-50 transition"
-          >
-            ➕ Tambah Habit
-          </Link>
+    <div className="space-y-6">
+      {msg && (
+        <div className="mb-1 rounded-xl border border-gray-200 bg-white p-3 text-sm shadow-sm">
+          {msg}
         </div>
+      )}
 
-        <ul className="mt-4 text-sm text-gray-600 list-disc list-inside space-y-1">
-          <li><span className="font-medium">Anti-cheat aktif:</span> Habit Daily hanya bisa diselesaikan 1x per hari (WIB), Weekly 1x per minggu.</li>
-          <li><span className="font-medium">Transparan:</span> Semua perubahan poin tercatat di Ledger untuk audit & grafik.</li>
-          <li><span className="font-medium">Fleksibel:</span> Kamu bisa mengelompokkan beberapa habit dalam satu Pencapaian (Card).</li>
-        </ul>
-      </div>
+      {/* ======= HERO ======= */}
+      <section
+        className="relative overflow-hidden rounded-3xl shadow-sm"
+        style={{
+          background:
+            'linear-gradient(120deg, rgba(99,102,241,0.10), rgba(168,85,247,0.10))',
+        }}
+      >
+        <div className="absolute inset-0 pointer-events-none rounded-3xl ring-1 ring-inset ring-indigo-200/40" />
 
-      {/* KPI & Klaim Singkat */}
-      <div className="grid md:grid-cols-2 gap-6 mb-6">
-        <div className="bg-white rounded-2xl shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-3">📊 Statistik Habit</h2>
-          <p>Total Habit: <span className="font-bold">{summaryHabits.total}</span></p>
-          <p>Completed (minggu ini)*: <span className="text-green-600">
-            {progress.length ? progress[progress.length - 1].completed : 0}
-          </span></p>
-          <p>Pending: <span className="text-yellow-600">{summaryHabits.pending}</span></p>
-          <p className="text-xs text-gray-400 mt-2">*Dihitung dari ledger (penyelesaian habit per minggu)</p>
+        <div className="grid grid-cols-1 lg:grid-cols-2">
+          {/* TEKS */}
+          <div className="p-6 sm:p-10">
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/70 backdrop-blur px-3 py-1 text-xs font-medium text-indigo-700 ring-1 ring-indigo-100 shadow-sm">
+              <span className="inline-block h-2 w-2 rounded-full bg-indigo-500" /> Halaman utama
+            </div>
+
+            {showWelcomeCTA ? (
+              <>
+                <h1 className="mt-3 text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight">
+                  {isNewUser ? 'Selamat datang' : 'Selamat'}{username ? `, ${username}` : ''}! 🎉
+                </h1>
+                <p className="mt-2 text-gray-700">
+                  {isNewUser
+                    ? 'Susun pencapaian, tambah kebiasaan, kumpulkan poin, lalu klaim hadiahnya.'
+                    : 'Reward berhasil diklaim! Saatnya set target baru dan lanjutkan kebiasaan baikmu.'}
+                </p>
+
+                <ul className="mt-5 space-y-2 text-gray-700">
+                  <li className="flex items-center gap-2">
+                    <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-md bg-indigo-600 text-white text-xs font-semibold">1</span>
+                    <span><b>Buat Pencapaian</b> dengan target poin.</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-md bg-indigo-600 text-white text-xs font-semibold">2</span>
+                    <span><b>Tambah Habit</b> yang mendukung target.</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-md bg-indigo-600 text-white text-xs font-semibold">3</span>
+                    <span><b>Kumpulkan poin</b> dan <b>klaim reward</b> 🎁</span>
+                  </li>
+                </ul>
+
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <Link
+                    to="/achievements"
+                    onClick={clearJustClaimed}
+                    className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-2.5 font-semibold text-white shadow-md hover:opacity-95"
+                  >
+                    🚀 Buat Pencapaian
+                  </Link>
+                  <Link
+                    to="/habits"
+                    onClick={clearJustClaimed}
+                    className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white/80 backdrop-blur px-5 py-2.5 font-semibold text-indigo-700 hover:bg-indigo-50"
+                  >
+                    ➕ Tambah Habit
+                  </Link>
+                </div>
+              </>
+            ) : (
+              <>
+                <h1 className="mt-3 text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight">
+                  Halo{username ? `, ${username}` : ''}! 👋
+                </h1>
+                <p className="mt-2 text-gray-700">
+                  {reliable ? (
+                    pending > 0 ? (
+                      <>Kamu punya <b>{pending}</b> habit yang <b>belum selesai hari ini</b>. Yuk lanjutkan!</>
+                    ) : (
+                      <>Mantap! Semua habit hari ini selesai. Lanjutkan streak-mu 🚀</>
+                    )
+                  ) : (
+                    // Pesan netral bila status "today" tidak dapat dipastikan dari data
+                    <>Yuk cek daftar habitmu hari ini dan lanjutkan streak! ✅</>
+                  )}
+                </p>
+
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <Link
+                    to="/habits"
+                    className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-2.5 font-semibold text-white shadow-md hover:opacity-95"
+                  >
+                    ✅ Buka Habits
+                  </Link>
+
+                  <Link
+                    to="/rewards"
+                    className={
+                      hasClaimable
+                        ? 'inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-2.5 font-semibold text-white shadow-md hover:opacity-95'
+                        : 'inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 backdrop-blur px-5 py-2.5 font-semibold text-emerald-700 hover:bg-emerald-50'
+                    }
+                    title={hasClaimable ? 'Ada reward siap diklaim — buka halaman Rewards' : 'Buka halaman Rewards'}
+                  >
+                    {hasClaimable ? '🎁 Klaim di Rewards' : '🎯 Lihat Rewards'}
+                  </Link>
+                </div>
+
+                <div className="mt-5 flex flex-wrap items-center gap-3 text-sm">
+                  <span className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white/80 backdrop-blur px-3 py-1 text-gray-700">
+                    🧩 Total Habit: <b>{habits.length}</b>
+                  </span>
+                  <span className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white/80 backdrop-blur px-3 py-1 text-gray-700">
+                    ⭐ Poin: <b>{points}</b>
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* GAMBAR — object-contain, tidak terpotong */}
+          <div className="relative min-h-[260px] lg:min-h-[380px] xl:min-h-[440px]">
+            <div
+              className="absolute inset-0"
+              style={{
+                background:
+                  'radial-gradient(800px 500px at 60% 50%, rgba(99,102,241,.20), transparent 60%)',
+              }}
+            />
+            <picture>
+              <source media="(max-width: 1023px)" srcSet={HERO_MOBILE} />
+              <img
+                src={HERO_DESKTOP}
+                alt="Ilustrasi kebiasaan personal"
+                className="absolute inset-0 h-full w-full object-contain p-6 lg:p-10"
+                draggable="false"
+              />
+            </picture>
+          </div>
         </div>
+      </section>
 
-        <div className="bg-white rounded-2xl shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-3">🎁 Reward & Poin</h2>
-          <p>Total Points: <span className="font-bold">{points}</span></p>
-          {bestClaimable ? (
-            <button
-              onClick={onClaimBest}
-              className="mt-4 bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700 transition"
-            >
-              Klaim: {bestClaimable.name} ({bestClaimable.requiredPoints})
-            </button>
-          ) : (
-            <p className="text-gray-600 mt-2">Belum ada reward yang bisa diklaim.</p>
-          )}
-        </div>
-      </div>
-
-      {/* Grafik Progres Mingguan */}
-      <div className="bg-white rounded-2xl shadow p-6 mb-6 w-full max-w-4xl mx-auto">
-        <h2 className="text-xl font-semibold mb-4 text-gray-800">📈 Grafik Progres Mingguan</h2>
-        {progress.length === 0 ? (
-          <p className="text-gray-500">Belum ada habit yang selesai.</p>
-        ) : (
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={progress}>
-              <XAxis dataKey="week" />
-              <YAxis allowDecimals={false} />
-              <Tooltip />
-              <Line type="monotone" dataKey="completed" stroke="#4f46e5" strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-
-      {/* Riwayat Klaim Reward */}
-      <div className="bg-white rounded-2xl shadow p-6 max-w-4xl mx-auto">
-        <h2 className="text-xl font-semibold mb-3">📜 Riwayat Reward</h2>
-        {rewardsHistory.length === 0 ? (
-          <p className="text-gray-500">Belum ada klaim reward.</p>
-        ) : (
-          <ul className="list-disc list-inside text-gray-700 space-y-1">
-            {rewardsHistory.map((r, i) => (
-              <li key={i}>{r.name} (−{r.points}) • {r.at}</li>
-            ))}
+      {/* SECTION RINGAN */}
+      <section className="grid md:grid-cols-2 gap-6">
+        <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-100">
+          <h3 className="text-lg font-semibold text-gray-900">Tips cepat</h3>
+          <ul className="mt-3 list-disc list-inside text-sm text-gray-700 space-y-1">
+            <li>Buat <b>Daily</b> habit kecil agar konsisten.</li>
+            <li>Gabungkan beberapa habit dalam satu <b>Achievement</b> untuk target besar.</li>
+            <li>Cek <b>Rewards</b> untuk motivasi tambahan.</li>
           </ul>
-        )}
-      </div>
+        </div>
+        <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-100">
+          <h3 className="text-lg font-semibold text-gray-900">Aksi cepat</h3>
+          <div className="mt-3 flex flex-wrap gap-3">
+            <Link to="/achievements" onClick={clearJustClaimed} className="rounded-lg border border-indigo-200 bg-indigo-50/50 px-4 py-2 text-indigo-700 hover:bg-indigo-50">
+              + Pencapaian
+            </Link>
+            <Link to="/habits" onClick={clearJustClaimed} className="rounded-lg border border-indigo-200 bg-indigo-50/50 px-4 py-2 text-indigo-700 hover:bg-indigo-50">
+              + Habit
+            </Link>
+            <Link to="/rewards" className="rounded-lg border border-emerald-200 bg-emerald-50/50 px-4 py-2 text-emerald-700 hover:bg-emerald-50">
+              Lihat Rewards
+            </Link>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

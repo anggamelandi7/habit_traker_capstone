@@ -1,29 +1,38 @@
-const express = require("express");
+// backend/routes/habitRoutes.js
+const express = require('express');
 const router = express.Router();
 
-const habitController = require("../controllers/habitController");
-const { completeHabit } = require("../controllers/habitCompleteController");
-const verifyToken = require("../middlewares/authMiddleware");
+// Dukung 2 gaya export: default function atau { verifyToken }
+const authMod = require('../middlewares/authMiddleware');
+const verifyToken = (typeof authMod === 'function') ? authMod : authMod.verifyToken;
 
-// CRUD Habit (pastikan ke-4 handler ini ada di habitController)
-router.get("/", verifyToken, habitController.getAllHabits);
-router.post("/", verifyToken, habitController.createHabit);
-router.put("/:id", verifyToken, habitController.updateHabit);
-router.delete("/:id", verifyToken, habitController.deleteHabit);
+// Controller
+const ctrl = require('../controllers/habitController');
 
+// Validator ID param sederhana
+function validateIdParam(req, res, next) {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ error: 'Habit ID tidak valid' });
+  }
+  next();
+}
 
-router.post(
-  "/:id/complete",
-  verifyToken,
-  (req, res, next) => {
-    if (Number.isNaN(Number(req.params.id))) {
-      return res.status(400).json({ error: "Habit ID tidak valid" });
-    }
-    next();
-  },
-  completeHabit
-);
-// router.get("/summary", verifyToken, habitController.getHabitSummary);
-// router.get("/progress", verifyToken, habitController.getHabitProgress);
+// --- ROUTES ---
+
+// IMPORTANT: definisikan path statis dulu sebelum param :id
+router.get('/grouped', verifyToken, ctrl.listHabitsGrouped);
+
+// Flat atau grouped via query (?grouped=true)
+router.get('/', verifyToken, ctrl.listHabits);
+
+// Selesai (anti-cheat per periode)
+router.post('/:id/complete', verifyToken, validateIdParam, ctrl.completeHabit);
+
+// Edit
+router.put('/:id', verifyToken, validateIdParam, ctrl.updateHabit);
+
+// Hapus (soft delete -> isActive = false)
+router.delete('/:id', verifyToken, validateIdParam, ctrl.deleteHabit);
 
 module.exports = router;
