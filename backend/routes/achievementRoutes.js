@@ -1,4 +1,3 @@
-// backend/routes/achievementRoutes.js
 const express = require('express');
 const router = express.Router();
 
@@ -6,6 +5,9 @@ const authMod = require('../middlewares/authMiddleware');
 const verifyToken = (typeof authMod === 'function') ? authMod : authMod.verifyToken;
 
 const {
+  getActive,
+  createDaily,
+  createWeekly,
   createAchievement,
   listAchievements,
   getAchievementDetail,
@@ -23,25 +25,15 @@ function validateIdParam(req, res, next) {
   next();
 }
 
-// CREATE
+router.get('/active', verifyToken, getActive);
+router.post('/daily', verifyToken, createDaily);
+router.post('/weekly', verifyToken, createWeekly);
 router.post('/', verifyToken, createAchievement);
-
-// LIST (default: hanya active; pakai ?includeInactive=1 untuk melihat yang nonaktif/expired)
 router.get('/', verifyToken, listAchievements);
-
-// DETAIL
 router.get('/:id', verifyToken, validateIdParam, getAchievementDetail);
-
-// ADD HABIT to achievement
 router.post('/:id/habits', verifyToken, validateIdParam, addHabitToAchievement);
-
-// CLAIM (sesuai desain: gunakan Rewards → 400)
 router.post('/:id/claim', verifyToken, validateIdParam, claimAchievement);
-
-// UPDATE (nama/targetPoints/description)
 router.put('/:id', verifyToken, validateIdParam, updateAchievement);
-
-// DELETE (soft delete → isActive=false)
 router.delete('/:id', verifyToken, validateIdParam, deleteAchievement);
 
 module.exports = router;

@@ -1,10 +1,9 @@
 // src/pages/Achievements.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiGet, apiPost, apiPut, apiDel } from '../api/client';
-import { getRewards } from '../api/rewards';
+import API from '../utils/api';
 
-/* ===== Helpers WIB / Period ===== */
+/* ===== Helpers WIB / Period (local) ===== */
 function wibYMD(date = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Jakarta',
@@ -58,7 +57,7 @@ function ProgressBar({ percent = 0 }) {
   return (
     <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
       <div
-        className="h-full bg-gradient-to-r from-indigo-500 to紫-600 transition-all duration-300"
+        className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 transition-all duration-300"
         style={{ width: `${p}%` }}
       />
     </div>
@@ -84,6 +83,74 @@ function makeKeyFromName(name) {
   return (name || '').toString().trim().toLowerCase();
 }
 
+/* ===== API helpers (langsung via axios instance) ===== */
+async function getAchievementsAPI() {
+  const { data } = await API.get('/achievements');
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.rows)) return data.rows;
+  return [];
+}
+async function createAchievementAPI(payload) {
+  const { data } = await API.post('/achievements', payload);
+  return data;
+}
+async function updateAchievementAPI(id, payload) {
+  const { data } = await API.put(`/achievements/${id}`, payload);
+  return data;
+}
+async function deleteAchievementAPI(id) {
+  const { data } = await API.delete(`/achievements/${id}`);
+  return data;
+}
+async function addHabitToAchievementAPI(achievementId, payload) {
+  const { data } = await API.post(`/achievements/${achievementId}/habits`, payload);
+  return data;
+}
+async function getRewardsAPI() {
+  try {
+    const { data } = await API.get('/rewards');
+    return Array.isArray(data?.items) ? data.items : [];
+  } catch {
+    return [];
+  }
+}
+
+/* ===== Ikon & warna habit (auto dari judul) ===== */
+function habitVisual(title = '') {
+  const t = title.toLowerCase();
+  const hit = (keys) => keys.some(k => t.includes(k));
+  if (hit(['lari','jog','jogging','run'])) return { emoji: '🏃', color: 'indigo' };
+  if (hit(['baca','read','book'])) return { emoji: '📚', color: 'amber' };
+  if (hit(['meditasi','meditate','yoga'])) return { emoji: '🧘', color: 'emerald' };
+  if (hit(['gym','workout','push up','plank','angkat beban'])) return { emoji: '💪', color: 'violet' };
+  if (hit(['minum','air putih','drink water','hydrate'])) return { emoji: '💧', color: 'sky' };
+  if (hit(['jalan','walk'])) return { emoji: '🚶', color: 'teal' };
+  if (hit(['sepeda','gowes','cycle','bike'])) return { emoji: '🚴', color: 'lime' };
+  if (hit(['renang','swim'])) return { emoji: '🏊', color: 'cyan' };
+  if (hit(['tidur','sleep'])) return { emoji: '😴', color: 'slate' };
+  if (hit(['makan sehat','diet','salad','buah','sayur'])) return { emoji: '🥗', color: 'green' };
+  if (hit(['ngoding','coding','code','program'])) return { emoji: '💻', color: 'zinc' };
+  if (hit(['tulis','write','jurnal','journal'])) return { emoji: '✍️', color: 'rose' };
+  if (hit(['doa','shalat','pray'])) return { emoji: '🙏', color: 'amber' };
+  return { emoji: '⭐', color: 'gray' };
+}
+const COLOR_STYLES = {
+  indigo:  { bg:'bg-indigo-50',  text:'text-indigo-600',  chip:'bg-indigo-50 text-indigo-700 border-indigo-200',  ring:'ring-indigo-200' },
+  amber:   { bg:'bg-amber-50',   text:'text-amber-600',   chip:'bg-amber-50 text-amber-700 border-amber-200',    ring:'ring-amber-200' },
+  emerald: { bg:'bg-emerald-50', text:'text-emerald-600', chip:'bg-emerald-50 text-emerald-700 border-emerald-200', ring:'ring-emerald-200' },
+  violet:  { bg:'bg-violet-50',  text:'text-violet-600',  chip:'bg-violet-50 text-violet-700 border-violet-200',  ring:'ring-violet-200' },
+  sky:     { bg:'bg-sky-50',     text:'text-sky-600',     chip:'bg-sky-50 text-sky-700 border-sky-200',          ring:'ring-sky-200' },
+  teal:    { bg:'bg-teal-50',    text:'text-teal-600',    chip:'bg-teal-50 text-teal-700 border-teal-200',       ring:'ring-teal-200' },
+  lime:    { bg:'bg-lime-50',    text:'text-lime-700',    chip:'bg-lime-50 text-lime-700 border-lime-200',       ring:'ring-lime-200' },
+  cyan:    { bg:'bg-cyan-50',    text:'text-cyan-700',    chip:'bg-cyan-50 text-cyan-700 border-cyan-200',       ring:'ring-cyan-200' },
+  slate:   { bg:'bg-slate-50',   text:'text-slate-600',   chip:'bg-slate-50 text-slate-700 border-slate-200',    ring:'ring-slate-200' },
+  green:   { bg:'bg-green-50',   text:'text-green-600',   chip:'bg-green-50 text-green-700 border-green-200',    ring:'ring-green-200' },
+  zinc:    { bg:'bg-zinc-50',    text:'text-zinc-600',    chip:'bg-zinc-50 text-zinc-700 border-zinc-200',       ring:'ring-zinc-200' },
+  rose:    { bg:'bg-rose-50',    text:'text-rose-600',    chip:'bg-rose-50 text-rose-700 border-rose-200',       ring:'ring-rose-200' },
+  gray:    { bg:'bg-gray-50',    text:'text-gray-600',    chip:'bg-gray-50 text-gray-700 border-gray-200',       ring:'ring-gray-200' },
+};
+
 /* ===== Kartu Achievement ===== */
 function AchievementCard({
   a,
@@ -92,7 +159,7 @@ function AchievementCard({
   onDeleteAchievement,
   onGoClaim,
   isClaimableByRewards,
-  locked: lockedProp,
+  locked: lockedProp, // locked karena SUDAH KLAIM
 }) {
   const [newHabit, setNewHabit] = useState({ title: '', pointsPerCompletion: '' });
   const [warn, setWarn] = useState(null);
@@ -104,8 +171,16 @@ function AchievementCard({
   const remainingToTarget = Math.max(0, Number(a.targetPoints || 0) - totalHabitPoints);
 
   const percent = Number(a?.stats?.progressPercent ?? a?.progressPercent ?? a?.progress ?? 0);
-  const expired = a?.stats?.expired === true || a.isActive === false;
-  const missed = a?.stats?.missed === true;
+
+  // === strict discipline awareness ===
+  const status = a?.status || 'ACTIVE'; // ACTIVE | COMPLETED | EXPIRED
+  const nowInWindow = a?.window?.nowInWindow ?? true; // backend listAchievements mengirim window.nowInWindow
+  const isInactive = status !== 'ACTIVE' || !nowInWindow;
+
+  const isExpired = status === 'EXPIRED';
+  const isCompleted = status === 'COMPLETED';
+
+  // Sudah diklaim (untuk cap "Sudah di-claim")
   const alreadyClaimedFlag =
     a?.stats?.alreadyClaimed === true ||
     a?.isClaimed === true ||
@@ -113,13 +188,14 @@ function AchievementCard({
     a?.rewardStatus === 'claimed' ||
     isClaimedThisPeriodByGuard(a);
 
-  const windowEndWIB = a?.stats?.windowEndWIB;
-
+  // locked khusus “sudah di-claim”
   const locked = typeof lockedProp === 'boolean'
     ? lockedProp
-    : (alreadyClaimedFlag || (percent >= 100 && isClaimableByRewards === false));
+    : alreadyClaimedFlag || (percent >= 100 && isClaimableByRewards === false);
 
-  const canClaim = !expired && !locked && percent >= 100 && Number(a.targetPoints || 0) > 0;
+  const canClaim = !isInactive && !locked && percent >= 100 && Number(a.targetPoints || 0) > 0;
+  const windowEndWIB = a?.window?.validToWIB || a?.stats?.windowEndWIB;
+  const windowStartWIB = a?.window?.validFromWIB || a?.stats?.windowStartWIB;
 
   useEffect(() => {
     const p = Number(newHabit.pointsPerCompletion || 0);
@@ -129,9 +205,9 @@ function AchievementCard({
 
   return (
     <div className={`relative rounded-2xl p-6 shadow-lg transition ${
-      expired ? 'bg-gray-100 border border-gray-300 opacity-70' : 'bg-gradient-to-br from-white to-gray-50'
+      isInactive ? 'bg-gray-100 border border-gray-300 opacity-90' : 'bg-gradient-to-br from-white to-gray-50'
     }`}>
-      {/* STAMP */}
+      {/* STAMP CLAIMED */}
       {locked && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="select-none rotate-[-12deg] border-4 border-red-500 text-red-600 uppercase tracking-widest font-extrabold text-xl md:text-2xl px-5 py-2 rounded-lg bg-white/70 shadow">
@@ -140,38 +216,66 @@ function AchievementCard({
         </div>
       )}
 
+      {/* overlay status */}
+      {isExpired && !locked && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="select-none rotate-[-6deg] border-4 border-amber-500 text-amber-700 uppercase tracking-widest font-extrabold text-lg md:text-xl px-4 py-1.5 rounded-lg bg-white/70 shadow">
+            Kadaluarsa
+          </div>
+        </div>
+      )}
+      {isCompleted && !locked && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="select-none rotate-[6deg] border-4 border-emerald-600 text-emerald-700 uppercase tracking-widest font-extrabold text-lg md:text-xl px-4 py-1.5 rounded-lg bg-white/70 shadow">
+            Selesai
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        {/* Info kiri (grayscale saat locked) */}
+        {/* Info kiri */}
         <div className={`min-w-0 ${locked ? 'filter grayscale' : ''}`}>
           <div className="flex items-center gap-2">
-            <h4 className={`font-semibold truncate text-lg ${expired ? 'text-gray-700' : 'text-gray-900'}`}>
+            <h4 className={`font-semibold truncate text-lg ${isInactive ? 'text-gray-700' : 'text-gray-900'}`}>
               {a.name}
             </h4>
             <StatPill tone="indigo">{a.frequency}</StatPill>
-            {missed && <StatPill tone="red">Missed</StatPill>}
-            {expired && <StatPill tone="amber">Expired</StatPill>}
+            {isExpired && <StatPill tone="amber">Expired</StatPill>}
+            {isCompleted && <StatPill tone="green">Completed</StatPill>}
           </div>
 
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-600">
+          {/* Description ditampilkan */}
+          {a?.description && (
+            <p className="mt-1.5 text-sm text-gray-700">
+              {a.description}
+            </p>
+          )}
+
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-600">
             <span>🎯 Target: <span className="font-semibold">{a.targetPoints}</span> poin</span>
             <span>• 📈 Terkumpul: <span className="font-semibold">{a?.stats?.contributedPoints ?? 0}</span></span>
             <span>• ⏳ Sisa: <span className="font-semibold">{a?.stats?.remainingPoints ?? 0}</span></span>
           </div>
 
-          {a.frequency === 'Daily' && (
+          {/* Info window — Daily vs Weekly */}
+          {a.frequency === 'Daily' ? (
             <div className="mt-1 text-xs text-gray-600">
               Reset tiap 00:00 WIB • Window berakhir: <span className="font-medium">{windowEndWIB || '-'}</span>
             </div>
+          ) : (
+            <div className="mt-1 text-xs text-gray-600">
+              Berlaku 7 hari sejak dibuat: <span className="font-medium">{windowStartWIB || '-'}</span> — <span className="font-medium">{windowEndWIB || '-'}</span>
+            </div>
           )}
 
-          {expired && (
+          {isInactive && !locked && (
             <div className="mt-3 text-sm text-gray-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-              Achievement ini sudah <b>expired</b>. Silahkan buat achievement Daily baru untuk hari ini.
+              Kartu ini <b>{isExpired ? 'expired' : 'tidak aktif'}</b>. Buat kartu baru untuk periode berjalan.
             </div>
           )}
           {locked && (
             <div className="mt-3 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-              Achievement ini sudah <b>diklaim</b> pada periode aktif. Kartu terkunci — hanya dapat dihapus.
+              Achievement sudah <b>diklaim</b> pada periode aktif. Kartu terkunci — hanya dapat dihapus.
             </div>
           )}
         </div>
@@ -190,12 +294,12 @@ function AchievementCard({
             <>
               <button
                 onClick={() => onEditAchievement(a)}
-                disabled={expired}
+                disabled={isInactive}
                 className={`px-3 py-2 rounded-lg border text-sm transition ${
-                  expired ? 'text-gray-400 bg-gray-100 cursor-not-allowed'
-                          : 'hover:bg-indigo-50 text-indigo-700 border-indigo-300'
+                  isInactive ? 'text-gray-400 bg-gray-100 cursor-not-allowed'
+                              : 'hover:bg-indigo-50 text-indigo-700 border-indigo-300'
                 }`}
-                title={expired ? 'Tidak bisa edit karena expired' : 'Edit Achievement'}
+                title={isInactive ? 'Tidak bisa edit karena kartu tidak aktif' : 'Edit Achievement'}
               >
                 ✏️ Edit
               </button>
@@ -208,13 +312,13 @@ function AchievementCard({
               </button>
               <button
                 onClick={() => onGoClaim(a)}
-                disabled={!(!expired && percent >= 100)}
+                disabled={!canClaim}
                 className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
-                  !expired && percent >= 100
+                  canClaim
                     ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                     : 'bg-gray-200 text-gray-500 cursor-not-allowed'
                 }`}
-                title={!expired && percent >= 100 ? 'Klaim di halaman Rewards' : (expired ? 'Expired' : 'Belum 100%')}
+                title={canClaim ? 'Klaim di halaman Rewards' : (isInactive ? 'Tidak aktif' : 'Belum 100%')}
               >
                 🎁 Klaim Rewards
               </button>
@@ -223,7 +327,7 @@ function AchievementCard({
         </div>
       </div>
 
-      {/* Progress (grayscale saat locked) */}
+      {/* Progress */}
       <div className={`mt-4 ${locked ? 'filter grayscale' : ''}`}>
         <div className="flex items-center justify-between text-sm text-gray-600 mb-1">
           <span>Progress</span>
@@ -232,46 +336,56 @@ function AchievementCard({
         <ProgressBar percent={percent} />
       </div>
 
-      {/* Habits (grayscale saat locked) */}
+      {/* Habits — lebih colorful + ikon aktivitas */}
       <div className={`mt-5 ${locked ? 'filter grayscale' : ''}`}>
         <div className="text-sm font-medium text-gray-900 mb-2">Habits</div>
         {(!a.habits || a.habits.length === 0) ? (
           <div className="text-gray-500 text-sm italic">Belum ada habit.</div>
         ) : (
           <ul className="space-y-2">
-            {a.habits.map(h => (
-              <li
-                key={h.id}
-                className={`flex items-center justify-between px-3 py-2 rounded-lg border ${
-                  expired || locked ? 'bg-gray-100' : 'bg-white/70'
-                }`}
-              >
-                <div className="min-w-0">
-                  <div className={`text-sm font-medium ${expired || locked ? 'text-gray-700' : 'text-gray-800'}`}>
-                    {h.title}
+            {a.habits.map(h => {
+              const v = habitVisual(h.title);
+              const styles = COLOR_STYLES[v.color] || COLOR_STYLES.gray;
+              return (
+                <li
+                  key={h.id}
+                  className={`flex items-center justify-between px-3 py-2 rounded-xl border ${styles.ring} bg-white/70`}
+                >
+                  <div className="min-w-0 flex items-center gap-3">
+                    <div className={`w-9 h-9 rounded-lg grid place-items-center ${styles.bg} ${styles.text}`}>
+                      {v.emoji}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-gray-800 truncate">
+                        {h.title}
+                      </div>
+                      <div className="text-xs text-gray-500">{a.frequency}</div>
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500">+{h.pointsPerCompletion} poin • {a.frequency}</div>
-                </div>
-              </li>
-            ))}
+                  <span className={`px-2 py-1 rounded-md text-xs font-medium border ${styles.chip}`}>
+                    +{h.pointsPerCompletion} poin
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
 
-      {/* Add Habit (grayscale saat locked) */}
+      {/* Add Habit */}
       <div className={`mt-5 ${locked ? 'filter grayscale' : ''}`}>
         <div className="text-sm text-gray-600">
           Alokasi habit: <span className="font-semibold">{totalHabitPoints}</span> / {a.targetPoints} poin
         </div>
 
-        <div className={`mt-3 border rounded-xl p-3 ${expired || locked ? 'bg-gray-100' : 'bg-indigo-50/40'}`}>
+        <div className={`mt-3 border rounded-xl p-3 ${isInactive || locked ? 'bg-gray-100' : 'bg-indigo-50/40'}`}>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
             <input
               className="border rounded-lg px-3 py-2 text-sm"
               placeholder="Nama habit"
               value={newHabit.title}
               onChange={e => setNewHabit({ ...newHabit, title: e.target.value })}
-              disabled={expired || locked}
+              disabled={isInactive || locked}
             />
             <input
               type="number"
@@ -280,7 +394,7 @@ function AchievementCard({
               placeholder="Poin"
               value={newHabit.pointsPerCompletion}
               onChange={e => setNewHabit({ ...newHabit, pointsPerCompletion: e.target.value })}
-              disabled={expired || locked}
+              disabled={isInactive || locked}
             />
             <button
               onClick={async () => {
@@ -292,13 +406,13 @@ function AchievementCard({
                 setNewHabit({ title: '', pointsPerCompletion: '' });
               }}
               disabled={
-                expired || locked ||
+                isInactive || locked ||
                 !newHabit.title?.trim() ||
                 Number(newHabit.pointsPerCompletion || 0) <= 0 ||
                 Number(newHabit.pointsPerCompletion || 0) > remainingToTarget
               }
               className={`px-3 py-2 rounded-lg text-sm transition ${
-                expired || locked ||
+                isInactive || locked ||
                 !newHabit.title?.trim() ||
                 Number(newHabit.pointsPerCompletion || 0) <= 0 ||
                 Number(newHabit.pointsPerCompletion || 0) > remainingToTarget
@@ -348,21 +462,13 @@ export default function Achievements() {
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({ name: '', frequency: 'Daily', targetPoints: '', description: '' });
 
-  const normalizeAchievements = (data) => {
-    if (Array.isArray(data)) return data;
-    if (Array.isArray(data?.items)) return data.items;
-    if (Array.isArray(data?.rows)) return data.rows;
-    return [];
-  };
-
   async function load() {
     setLoading(true);
     setMsg(null);
     try {
-      const data = await apiGet('/achievements');
-      const achs = normalizeAchievements(data);
+      const achs = await getAchievementsAPI();
 
-      const { items: rewards } = await getRewards();
+      const rewards = await getRewardsAPI();
       const byName = new Set(rewards.map(r => makeKeyFromName(r.name)));
       const bySourceId = new Set(rewards.map(r => r.sourceId).filter(Boolean));
 
@@ -376,7 +482,7 @@ export default function Achievements() {
   }
   useEffect(() => { load(); }, []);
 
-  // Dengarkan event dari Rewards + refresh saat kembali fokus
+  // Refresh saat balik ke tab / setelah klaim
   useEffect(() => {
     let t;
     const onClaimed = () => {
@@ -398,7 +504,7 @@ export default function Achievements() {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onFocus);
     };
-  }, []); // eslint-disable-line
+  }, []);
 
   const daily = useMemo(() => items.filter(a => a.frequency === 'Daily'), [items]);
   const weekly = useMemo(() => items.filter(a => a.frequency === 'Weekly'), [items]);
@@ -416,7 +522,7 @@ export default function Achievements() {
   /* ---- Handlers ---- */
   const handleAddHabit = async (ach, payload) => {
     try {
-      await apiPost(`/achievements/${ach.id}/habits`, payload);
+      await addHabitToAchievementAPI(ach.id, payload);
       await load();
       setMsg(`Habit "${payload.title}" ditambahkan ke "${ach.name}"`);
     } catch (e) {
@@ -429,7 +535,7 @@ export default function Achievements() {
   };
   const saveEdit = async () => {
     try {
-      await apiPut(`/achievements/${editItem.id}`, {
+      await updateAchievementAPI(editItem.id, {
         name: editForm.name,
         targetPoints: Number(editForm.targetPoints || 0),
       });
@@ -443,7 +549,7 @@ export default function Achievements() {
   const handleDeleteAchievement = async (ach) => {
     if (!window.confirm(`Hapus achievement "${ach.name}"?`)) return;
     try {
-      await apiDel(`/achievements/${ach.id}`);
+      await deleteAchievementAPI(ach.id);
       setMsg('Achievement dihapus');
       await load();
     } catch (e) {
@@ -462,7 +568,7 @@ export default function Achievements() {
     if (!Number.isFinite(targetPoints) || targetPoints <= 0) return setMsg('Target points harus angka > 0');
 
     try {
-      await apiPost('/achievements', { name, frequency, targetPoints, description: createForm.description || null });
+      await createAchievementAPI({ name, frequency, targetPoints, description: createForm.description || null });
       setShowCreate(false);
       setCreateForm({ name: '', frequency: 'Daily', targetPoints: '', description: '' });
       await load();
@@ -488,7 +594,7 @@ export default function Achievements() {
         <div>
           <h2 className="text-xl font-semibold">Achievements</h2>
           <p className="text-gray-600 text-sm">
-            Daily reset otomatis tiap 00:00 WIB. Jika window sudah berakhir dan progress &lt; 100%, kartu akan menjadi <b>Expired</b> dan dapat dihapus.
+            Daily reset otomatis tiap 00:00 WIB. Weekly aktif selama 7 hari sejak kartu dibuat. Jika window berakhir dan progress &lt; 100%, kartu jadi <b>Expired</b>.
           </p>
         </div>
         <button
@@ -647,26 +753,7 @@ export default function Achievements() {
 
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => setShowCreate(false)} className="px-4 py-2 rounded border">Batal</button>
-              <button
-                onClick={async () => {
-                  const name = createForm.name.trim();
-                  const frequency = createForm.frequency;
-                  const targetPoints = Number(createForm.targetPoints || 0);
-                  if (!name) return setMsg('Nama achievement wajib diisi');
-                  if (!['Daily','Weekly'].includes(frequency)) return setMsg('Frequency tidak valid');
-                  if (!Number.isFinite(targetPoints) || targetPoints <= 0) return setMsg('Target points harus angka > 0');
-                  try {
-                    await apiPost('/achievements', { name, frequency, targetPoints, description: createForm.description || null });
-                    setShowCreate(false);
-                    setCreateForm({ name: '', frequency: 'Daily', targetPoints: '', description: '' });
-                    await load();
-                    setMsg(`Achievement "${name}" dibuat`);
-                  } catch (e) {
-                    setMsg(e?.error || 'Gagal membuat achievement');
-                  }
-                }}
-                className="px-4 py-2 rounded bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:opacity-90"
-              >
+              <button onClick={createAchievement} className="px-4 py-2 rounded bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:opacity-90">
                 Buat Achievement
               </button>
             </div>

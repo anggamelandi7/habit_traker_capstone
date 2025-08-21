@@ -1,9 +1,62 @@
 // src/pages/Habits.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { getHabitsGrouped, completeHabit, updateHabit, deleteHabitAPI } from '../api/habits';
-import { getLedgerRange } from '../api/points';
+import API from '../utils/api';
 import Calendar, { startOfWeekMon, addDays, dateKeyLocal } from '../components/calendar/Calendar';
+
+/* ====== API helpers (langsung via axios instance) ====== */
+async function getHabitsGroupedAPI() {
+  const { data } = await API.get('/habits/grouped');
+  return data;
+}
+async function completeHabitAPI(id) {
+  const { data } = await API.post(`/habits/${id}/complete`);
+  return data;
+}
+async function updateHabitAPI(id, payload) {
+  const { data } = await API.put(`/habits/${id}`, payload);
+  return data;
+}
+async function deleteHabitAPI(id) {
+  const { data } = await API.delete(`/habits/${id}`);
+  return data;
+}
+
+/** Ambil list achievements untuk membaca window Weekly (validFrom..validTo) */
+async function getAchievementWindowsAPI() {
+  try {
+    const { data } = await API.get('/achievements'); // controller kita mengembalikan array
+    const arr = Array.isArray(data) ? data :
+      (Array.isArray(data?.items) ? data.items : (Array.isArray(data?.rows) ? data.rows : []));
+    const map = {};
+    for (const a of arr) {
+      if (a.frequency !== 'Weekly') continue;
+      // Ambil window dari respons controller (listAchievements expose window.*)
+      const vFrom = a?.window?.validFromUTC || a?.validFromUTC || null;
+      const vTo = a?.window?.validToUTC || a?.validToUTC || null;
+      if (!vFrom || !vTo) continue;
+      map[a.id] = { validFromUTC: vFrom, validToUTC: vTo, status: a.status, isActive: a.isActive };
+    }
+    return map; // { [achievementId]: {validFromUTC, validToUTC, ...} }
+  } catch {
+    return {};
+  }
+}
+
+// Ledger opsional (kalau endpoint tidak ada, kita fallback ke kosong agar tidak error)
+async function getLedgerRangeAPI({ startDate, endDate, limit = 1000 }) {
+  try {
+    const { data } = await API.get('/points/ledger', { params: { startDate, endDate, limit } });
+    return data || { items: [] };
+  } catch {
+    try {
+      const { data } = await API.get('/ledger/range', { params: { startDate, endDate, limit } });
+      return data || { items: [] };
+    } catch {
+      return { items: [] };
+    }
+  }
+}
 
 function Section({ title, items, onCompleteClick, onEditClick, onDeleteClick, tone = 'indigo' }) {
   const total = items?.length || 0;
@@ -177,6 +230,22 @@ function keyWIBFromUTC(utcISOString, tz = 'Asia/Jakarta') {
   return `${y}-${m}-${da}`; // YYYY-MM-DD (WIB)
 }
 
+/** Buat array key hari (WIB) dari rentang UTC [from..to] (inklusif) */
+function daysBetweenToWIBKeys(fromUTC, toUTC) {
+  try {
+    const start = new Date(fromUTC);
+    const end = new Date(toUTC);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+    const set = new Set();
+    for (let t = new Date(start); t <= end; t.setUTCDate(t.getUTCDate() + 1)) {
+      set.add(keyWIBFromUTC(t.toISOString()));
+    }
+    return Array.from(set);
+  } catch {
+    return [];
+  }
+}
+
 // hitung badge = jumlah event 'done' per hari dari peta events
 function countDoneBadges(eventsMap = {}) {
   const out = {};
@@ -190,6 +259,7 @@ function countDoneBadges(eventsMap = {}) {
 export default function Habits() {
   const [daily, setDaily] = useState([]);
   const [weekly, setWeekly] = useState([]);
+  const [weeklyWindows, setWeeklyWindows] = useState({}); // {achievementId: {validFromUTC, validToUTC}}
   const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState(null);
@@ -204,12 +274,12 @@ export default function Habits() {
   const [editHabit, setEditHabit] = useState(null);
   const [editForm, setEditForm] = useState({ title: '', pointsPerCompletion: 0 });
 
-  function monthRange(dateObj) {
+  const monthRange = useCallback((dateObj) => {
     const s = new Date(dateObj.getFullYear(), dateObj.getMonth(), 1);
     const e = new Date(dateObj.getFullYear(), dateObj.getMonth() + 1, 0);
     const toIso = (d) => dateKeyLocal(d); // pakai key lokal
     return { start: toIso(s), end: toIso(e) };
-  }
+  }, []);
 
   // DONE events dari ledger (pakai key WIB)
   function buildDoneEventsFromLedger(ledger) {
@@ -225,10 +295,9 @@ export default function Habits() {
     return ev;
   }
 
-  // PENDING events untuk tanggal/minggu terpilih (pakai key lokal)
-  function buildPendingEventsForSelection(anchorDateObj, dailyList, weeklyList) {
+  /** DAILY pending → hanya pada tanggal yang dipilih (anchor) */
+  function buildDailyPendingForSelection(anchorDateObj, dailyList) {
     const ev = {};
-    // DAILY (pending) → pada TANGGAL TERPILIH
     const anchorISO = keyLocal(anchorDateObj);
     const dailyPending = (dailyList || []).filter(h => h.status === 'pending' && h.canComplete);
     if (dailyPending.length) {
@@ -237,18 +306,21 @@ export default function Habits() {
         ev[anchorISO].push({ id: `p-d-${h.id}`, title: h.title, status: 'pending', subtitle: 'Daily (pending)' });
       });
     }
-    // WEEKLY (pending) → SETIAP HARI minggu terpilih (Mon..Sun)
-    const ws = startOfWeekMon(anchorDateObj);
-    for (let i=0;i<7;i++){
-      const d = addDays(ws, i);
-      const iso = keyLocal(d);
-      const weeklyPending = (weeklyList || []).filter(h => h.status === 'pending' && h.canComplete);
-      if (weeklyPending.length) {
+    return ev;
+  }
+
+  /** WEEKLY pending → pada SEMUA hari di window kartu (validFrom..validTo) */
+  function buildWeeklyPendingByWindows(weeklyList, windowsMap) {
+    const ev = {};
+    const weeklyPending = (weeklyList || []).filter(h => h.status === 'pending' && h.canComplete);
+    for (const h of weeklyPending) {
+      const win = windowsMap?.[h.achievementId];
+      if (!win?.validFromUTC || !win?.validToUTC) continue;
+      const days = daysBetweenToWIBKeys(win.validFromUTC, win.validToUTC);
+      days.forEach(iso => {
         ev[iso] = ev[iso] || [];
-        weeklyPending.forEach(h => {
-          ev[iso].push({ id: `p-w-${h.id}-${iso}`, title: h.title, status: 'pending', subtitle: 'Weekly (pending)' });
-        });
-      }
+        ev[iso].push({ id: `p-w-${h.id}-${iso}`, title: h.title, status: 'pending', subtitle: 'Weekly (pending)' });
+      });
     }
     return ev;
   }
@@ -259,56 +331,79 @@ export default function Habits() {
     return out;
   }
 
-  const load = async () => {
+  const rebuildCalendar = useCallback(async (anchorDateObj, dailyList, weeklyList, windowsMap) => {
+    // 1) ledger bulan anchor (DONE) — opsional, aman kalau endpoint belum ada
+    const { start, end } = monthRange(anchorDateObj);
+    const ledger = await getLedgerRangeAPI({ startDate: start, endDate: end, limit: 1000 });
+    const doneEv = buildDoneEventsFromLedger(ledger);
+
+    // 2) pending
+    const dailyPendingEv = buildDailyPendingForSelection(anchorDateObj, dailyList);
+    let weeklyPendingEv;
+    if (windowsMap && Object.keys(windowsMap).length > 0) {
+      // gunakan window dari achievement
+      weeklyPendingEv = buildWeeklyPendingByWindows(weeklyList, windowsMap);
+    } else {
+      // fallback lama: tandai 7 hari minggu anchor (Mon..Sun)
+      weeklyPendingEv = {};
+      const ws = startOfWeekMon(anchorDateObj);
+      const weeklyPend = (weeklyList || []).filter(h => h.status === 'pending' && h.canComplete);
+      for (let i=0;i<7;i++){
+        const d = addDays(ws, i);
+        const iso = keyLocal(d);
+        if (weeklyPend.length) {
+          weeklyPendingEv[iso] = weeklyPendingEv[iso] || [];
+          weeklyPend.forEach(h => {
+            weeklyPendingEv[iso].push({ id: `p-w-${h.id}-${iso}`, title: h.title, status: 'pending', subtitle: 'Weekly (pending)' });
+          });
+        }
+      }
+    }
+
+    // 3) gabung & set badges dari merged
+    const merged = mergeEvents(doneEv, mergeEvents(dailyPendingEv, weeklyPendingEv));
+    setEvents(merged);
+    setBadges(countDoneBadges(merged));
+  }, [monthRange]);
+
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      // 1) habits grouped (untuk pending)
-      const habitsData = await getHabitsGrouped();
+      // 1) habits grouped (untuk pending & status lock dari server)
+      const habitsData = await getHabitsGroupedAPI();
       setDaily(habitsData.daily || []);
       setWeekly(habitsData.weekly || []);
       setMeta(habitsData.meta || null);
 
-      // 2) ledger bulan anchor (DONE)
-      const { start, end } = monthRange(calendarDate);
-      const ledger = await getLedgerRange({ startDate: start, endDate: end, limit: 1000 });
-      const doneEv = buildDoneEventsFromLedger(ledger);
+      // 2) ambil window weekly dari achievements
+      const wins = await getAchievementWindowsAPI();
+      setWeeklyWindows(wins);
 
-      // 3) pending utk anchor (daily+weekly)
-      const pendingEv = buildPendingEventsForSelection(calendarDate, habitsData.daily, habitsData.weekly);
-
-      // 4) gabung & set badges dari merged
-      const merged = mergeEvents(doneEv, pendingEv);
-      setEvents(merged);
-      setBadges(countDoneBadges(merged));
+      // 3) bangun kalender
+      await rebuildCalendar(calendarDate, habitsData.daily, habitsData.weekly, wins);
     } catch (e) {
       setMsg(e?.error || 'Gagal memuat data');
     } finally {
       setLoading(false);
     }
-  };
+  }, [calendarDate, rebuildCalendar]);
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { load(); }, [load]);
 
-  // refetch ledger + pending saat ganti bulan/tanggal di kalender
+  // refetch ledger + pending saat ganti tanggal di kalender (reuse windows yang sudah ada)
   async function handleCalendarChange(d) {
     setCalendarDate(d);
     try {
-      const { start, end } = monthRange(d);
-      const ledger = await getLedgerRange({ startDate: start, endDate: end, limit: 1000 });
-      const doneEv = buildDoneEventsFromLedger(ledger);
-      const pendingEv = buildPendingEventsForSelection(d, daily, weekly);
-      const merged = mergeEvents(doneEv, pendingEv);
-      setEvents(merged);
-      setBadges(countDoneBadges(merged));
+      await rebuildCalendar(d, daily, weekly, weeklyWindows);
     } catch {
-      // optional: toast
+      // optional
     }
   }
 
   const handleConfirmComplete = async () => {
     if (!confirmHabit) return;
     try {
-      const res = await completeHabit(confirmHabit.id);
+      const res = await completeHabitAPI(confirmHabit.id);
       setMsg(
         `✔ ${confirmHabit.title} — +${res.addedPoints} poin. Total: ${res.newBalance}` +
         (res?.achievementProgress?.claimable ? ` • Pencapaian "${res.achievementProgress.achievementName}" bisa diklaim!` : '')
@@ -339,7 +434,7 @@ export default function Habits() {
 
   const saveEdit = async () => {
     try {
-      await updateHabit(editHabit.id, {
+      await updateHabitAPI(editHabit.id, {
         title: editForm.title,
         pointsPerCompletion: Number(editForm.pointsPerCompletion || 0),
       });
@@ -363,6 +458,7 @@ export default function Habits() {
         onChange={handleCalendarChange}
         badges={badges}
         events={events}
+        weekStart="today"
       />
 
       {/* Info ringkas + CTA */}

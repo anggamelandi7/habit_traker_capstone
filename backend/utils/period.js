@@ -1,75 +1,140 @@
-// backend/helpers/period.js
+// backend/utils/period.js
 
 /**
- * Format tanggal ke WIB ringkas: DD/MM/YYYY • HH.mm AM/PM
+ * Utility perhitungan periode (WIB) untuk Achievements
+ * - Daily  : window = hari ini (00:00–23:59 WIB)
+ * - Weekly : window = 7 hari sejak tanggal dibuatnya kartu (createdAt) dalam WIB
+ *
+ * Kompat:
+ *   getCurrentWindowWIB(arg)
+ *     - arg: 'Daily' | 'Weekly' (fallback lama; Weekly pakai "hari ini" sebagai base)
+ *     - arg: { frequency: 'Daily'|'Weekly', createdAt?: string|Date } (lebih akurat)
  */
+
+const TZ = 'Asia/Jakarta';
+
+/* ========== Format & Tanggal WIB ========== */
+
+/** Format WIB ringkas: DD/MM/YYYY • HH.mm */
 function fmtWIB(d) {
   if (!d) return null;
   const datePart = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Jakarta',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
+    timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric',
   }).format(d);
-
   const timePart = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Jakarta',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true, // “AM/PM”
-  })
-    .format(d)
-    .replace(':', '.'); // 12:00 -> 12.00
-
+    timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(d).replace(':', '.');
   return `${datePart} • ${timePart}`;
 }
 
+/** YYYY-MM-DD pada WIB */
+function ymdWIB(date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  const y = parts.find(p => p.type === 'year')?.value;
+  const m = parts.find(p => p.type === 'month')?.value;
+  const d = parts.find(p => p.type === 'day')?.value;
+  return `${y}-${m}-${d}`;
+}
+
+/** WIB start of day */
+function wibStartOfDay(dateLike) {
+  const d = dateLike ? new Date(dateLike) : new Date();
+  const ymd = ymdWIB(d);
+  // +07:00 agar konsisten WIB
+  return new Date(`${ymd}T00:00:00.000+07:00`);
+}
+
+/** WIB end of day */
+function wibEndOfDay(dateLike) {
+  const d = dateLike ? new Date(dateLike) : new Date();
+  const ymd = ymdWIB(d);
+  return new Date(`${ymd}T23:59:59.999+07:00`);
+}
+
+/** Tambah hari pada domain UTC (stabil untuk pergeseran harian) */
+function addDaysUTC(dateLike, n) {
+  const d = new Date(dateLike);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d;
+}
+
+/* ========== Window Per Achievement ========== */
+
+function normalizeArg(arg) {
+  // pemanggilan lama: getCurrentWindowWIB('Weekly')
+  if (typeof arg === 'string') {
+    return { frequency: String(arg), baseDate: new Date() }; // Weekly pakai "hari ini" bila createdAt tak tersedia
+  }
+  // pemanggilan baru: getCurrentWindowWIB(achievementObj)
+  const frequency = arg?.frequency || 'Daily';
+  const baseDate = arg?.createdAt ? new Date(arg.createdAt) : new Date();
+  return { frequency, baseDate };
+}
+
 /**
- * Mengembalikan window aktif (WIB):
- *  - Daily : hari ini 00:00:00 s/d besok 00:00:00
- *  - Weekly: Senin 00:00:00 s/d Senin berikutnya 00:00:00
- * Return: { periodStart: Date(UTC), periodEnd: Date(UTC) }
+ * Hitung window berjalan (WIB).
+ * - Weekly: 7 hari sejak baseDate (createdAt jika tersedia).
+ * - Daily : tanggal hari ini (WIB).
+ * return: { periodStart, periodEnd, nowInWindow }
  */
-function getCurrentWindowWIB(frequency = 'Daily') {
-  const tz = 'Asia/Jakarta';
-  // “now” dalam zona WIB lalu dijadikan Date lokal
-  const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
+function getCurrentWindowWIB(arg = 'Daily') {
+  const { frequency, baseDate } = normalizeArg(arg);
+  const f = String(frequency).toLowerCase();
 
-  const start = new Date(nowWIB);
-  const end = new Date(nowWIB);
-
-  if (frequency === 'Weekly') {
-    // Minggu dimulai Senin (Mon=1 .. Sun=7)
-    const day = start.getDay() || 7; // getDay(): Sun=0 -> kita jadikan 7
-    start.setDate(start.getDate() - (day - 1)); // mundur ke Senin
-    start.setHours(0, 0, 0, 0);
-
-    end.setTime(start.getTime());
-    end.setDate(start.getDate() + 7);
-  } else {
-    // Daily
-    start.setHours(0, 0, 0, 0);
-    end.setTime(start.getTime());
-    end.setDate(start.getDate() + 1);
+  if (f === 'weekly') {
+    const start = wibStartOfDay(baseDate);               // WIB
+    const end = wibEndOfDay(addDaysUTC(start, 6));       // inklusif 7 hari (0..6)
+    const now = new Date();
+    return {
+      periodStart: start,
+      periodEnd: end,
+      nowInWindow: now >= start && now <= end,
+    };
   }
 
-  // Kembalikan sebagai Date UTC yang stabil
+  // default: Daily
+  const start = wibStartOfDay(new Date());
+  const end = wibEndOfDay(new Date());
   return {
-    periodStart: new Date(start.toISOString()),
-    periodEnd: new Date(end.toISOString()),
+    periodStart: start,
+    periodEnd: end,
+    nowInWindow: true,
   };
 }
 
 /**
- * Metadata window (WIB) untuk tampilan UI.
- * Return: { startWIB: string, endWIB: string }
+ * Metadata window (WIB) untuk tampilan UI & FE:
+ *  {
+ *    startWIB, endWIB,                   // string human readable
+ *    validFromUTC, validToUTC,           // untuk FE logic rentang (ISO)
+ *    validFromWIB, validToWIB,           // string sama dg start/end WIB
+ *    nowInWindow                         // boolean
+ *  }
  */
-function getWindowMetaWIB(frequency = 'Daily') {
-  const { periodStart, periodEnd } = getCurrentWindowWIB(frequency);
+function getWindowMetaWIB(arg = 'Daily') {
+  const { periodStart, periodEnd, nowInWindow } = getCurrentWindowWIB(arg);
   return {
     startWIB: fmtWIB(periodStart),
     endWIB: fmtWIB(periodEnd),
+    validFromUTC: periodStart.toISOString(),
+    validToUTC: periodEnd.toISOString(),
+    validFromWIB: fmtWIB(periodStart),
+    validToWIB: fmtWIB(periodEnd),
+    nowInWindow,
   };
 }
 
-module.exports = { fmtWIB, getCurrentWindowWIB, getWindowMetaWIB };
+module.exports = {
+  // formatters & date utils
+  fmtWIB,
+  ymdWIB,
+  wibStartOfDay,
+  wibEndOfDay,
+  addDaysUTC,
+
+  // window
+  getCurrentWindowWIB,
+  getWindowMetaWIB,
+};
