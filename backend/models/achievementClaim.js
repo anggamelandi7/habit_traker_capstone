@@ -1,11 +1,11 @@
 "use strict";
 module.exports = (sequelize, DataTypes) => {
   const AchievementClaim = sequelize.define("AchievementClaim", {
-    // foreign keys (pastikan kolom ini memang ada di tabel)
+    // foreign keys 
     userId:        { type: DataTypes.INTEGER, allowNull: false },
     achievementId: { type: DataTypes.INTEGER, allowNull: false },
 
-    // periode klaim (WIB window yang sudah kamu hitung di controller)
+    // periode klaim 
     periodStart:   { type: DataTypes.DATE, allowNull: false },
     periodEnd:     { type: DataTypes.DATE, allowNull: false },
 

@@ -1,4 +1,3 @@
-// controllers/pointsController.js
 const { Op } = require("sequelize");
 const { PointLedger, Habit, Reward, User } = require("../models");
 

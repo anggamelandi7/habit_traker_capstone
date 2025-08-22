@@ -1,8 +1,7 @@
 // src/pages/Register.jsx
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
-
 
 const HERO = '/images/register-page.jpg';
 
@@ -13,10 +12,8 @@ export default function Register() {
     username: '',
     email: '',
     password: '',
-    confirm: '',
   });
   const [showPwd, setShowPwd] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errMsg, setErrMsg] = useState('');
   const [okMsg, setOkMsg] = useState('');
@@ -30,23 +27,18 @@ export default function Register() {
     setErrMsg('');
   };
 
-  const mismatch = useMemo(
-    () => form.password && form.confirm && form.password !== form.confirm,
-    [form.password, form.confirm]
-  );
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrMsg('');
     setOkMsg('');
 
     // validasi ringan
-    if (mismatch) {
-      setErrMsg('Konfirmasi password tidak sama.');
-      return;
-    }
     if (!form.username.trim() || !form.email.trim() || !form.password) {
       setErrMsg('Semua field wajib diisi.');
+      return;
+    }
+    if (form.password.length < 6) {
+      setErrMsg('Password minimal 6 karakter.');
       return;
     }
 
@@ -60,7 +52,6 @@ export default function Register() {
       const res = await axios.post('http://localhost:5000/auth/register', payload);
 
       setOkMsg('Registrasi berhasil! Silakan login.');
-      // opsional: simpan user singkat kalau backend mengembalikan
       if (res.data?.user) localStorage.setItem('user_temp', JSON.stringify(res.data.user));
 
       setTimeout(() => navigate('/login'), 800);
@@ -236,61 +227,6 @@ export default function Register() {
                 </button>
               </div>
               <p className="mt-1 text-xs text-gray-500">Minimal 6 karakter disarankan.</p>
-            </div>
-
-            {/* Confirm Password */}
-            <div>
-              <label htmlFor="confirm" className="block text-sm font-medium text-gray-700">
-                Konfirmasi Password
-              </label>
-              <div className="mt-1 relative">
-                <input
-                  id="confirm"
-                  name="confirm"
-                  type={showConfirm ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  required
-                  placeholder="Ulangi password"
-                  value={form.confirm}
-                  onChange={handleChange}
-                  aria-invalid={mismatch || Boolean(errMsg)}
-                  aria-describedby={(mismatch || errMsg) ? 'register-error' : undefined}
-                  className={`w-full rounded-lg border bg-white px-4 py-2.5 pr-10 text-gray-900 placeholder-gray-400 shadow-sm focus:outline-none focus:ring-2
-                    ${mismatch
-                      ? 'border-red-400 focus:ring-red-200'
-                      : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-200'
-                    }`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirm((v) => !v)}
-                  className="absolute inset-y-0 right-1.5 grid place-items-center px-2 text-gray-500 hover:text-gray-700"
-                  aria-label={showConfirm ? 'Sembunyikan konfirmasi' : 'Tampilkan konfirmasi'}
-                >
-                  {showConfirm ? (
-                    // eye-off
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                      className="h-5 w-5" fill="none" stroke="currentColor"
-                      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 3l18 18" />
-                      <path d="M10 10a4 4 0 0 0 5.66 5.66" />
-                      <path d="M2 12s4-7 10-7 10 7 10 7a17.5 17.5 0 0 1-3.1 3.25" />
-                      <path d="M9.5 5.5A11 11 0 0 1 12 5c6 0 10 7 10 7" />
-                    </svg>
-                  ) : (
-                    // eye
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                      className="h-5 w-5" fill="none" stroke="currentColor"
-                      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-              {mismatch && (
-                <p className="mt-1 text-xs text-red-600">Konfirmasi password tidak sama.</p>
-              )}
             </div>
 
             {/* Submit */}

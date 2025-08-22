@@ -1,4 +1,3 @@
-// backend/controllers/historyController.js
 const { Op, fn, col } = require('sequelize');
 const {
   PointLedger,
@@ -193,7 +192,6 @@ async function getHabitCompletions(req, res) {
     });
 
     const totalPointsAwarded = items.reduce((a, b) => a + b.pointsAwarded, 0);
-
     // agregasi by habit
     const byHabitMap = new Map();
     items.forEach((i) => {

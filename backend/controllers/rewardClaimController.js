@@ -1,4 +1,3 @@
-// backend/controllers/rewardClaimController.js
 const { Op } = require('sequelize');
 const { sequelize, Reward, User } = require('../models');
 const { addPointsAtomic } = require('../services/pointsService'); // pastikan path benar
@@ -90,9 +89,6 @@ async function listRewards(req, res) {
         updatedAt: r.updatedAt,
         claimable: balance >= required,
         remainingPoints: Math.max(0, required - balance),
-        // jika model ada kolom ini:
-        // isClaimed: !!r.isClaimed,
-        // claimedAt: r.claimedAt,
       };
     });
 
@@ -204,8 +200,6 @@ async function claimReward(req, res) {
       reward: {
         id: reward.id,
         name: reward.name,
-        requiredPoints: cost,
-        // sertakan claimedAt jika ada
         ...(reward.claimedAt ? { claimedAt: reward.claimedAt } : {}),
       },
       balanceAfter,

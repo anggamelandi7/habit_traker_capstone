@@ -33,7 +33,7 @@ async function createReward(req, res) {
 
     let { name, requiredPoints, description, expiryDate, isActive } = req.body || {};
     if ((requiredPoints === undefined || requiredPoints === null) && req.body?.points !== undefined) {
-      requiredPoints = req.body.points; // kompat versi lama
+      requiredPoints = req.body.points; 
     }
 
     if (!name || requiredPoints === undefined || requiredPoints === null) {
@@ -74,8 +74,8 @@ async function listRewards(req, res) {
     const rows = await Reward.findAll({
       where: {
         userId: req.user.id,
-        isActive: true, // hanya yang aktif
-        [Op.or]: [{ expiryDate: null }, { expiryDate: { [Op.gt]: now } }], // belum kadaluarsa
+        isActive: true, 
+        [Op.or]: [{ expiryDate: null }, { expiryDate: { [Op.gt]: now } }],
       },
       order: [['requiredPoints', 'ASC']],
     });
@@ -96,7 +96,6 @@ async function listRewards(req, res) {
         expiryDate: r.expiryDate,
         claimedAt: hasField(r, 'claimedAt') ? r.get('claimedAt') : null,
         status: hasStatus ? r.get('status') : undefined,
-        // FE helper
         claimable,
         remainingPoints: Math.max(0, required - balance),
       };

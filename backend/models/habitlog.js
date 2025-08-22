@@ -1,4 +1,3 @@
-// backend/models/habitlog.js
 module.exports = (sequelize, DataTypes) => {
   const HabitLog = sequelize.define('HabitLog', {
     userId: { type: DataTypes.INTEGER, allowNull: false },

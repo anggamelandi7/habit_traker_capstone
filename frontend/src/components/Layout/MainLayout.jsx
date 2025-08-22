@@ -33,7 +33,7 @@ function deriveTitle(pathname) {
 export default function MainLayout() {
   const { pathname } = useLocation();
 
-  // 👉 state sidebar diangkat ke layout
+  //state sidebar diangkat ke layout
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
   useEffect(() => {
     localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0');

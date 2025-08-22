@@ -3,9 +3,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getHabits } from '../api/habits';
 import { getRewards } from '../api/rewards';
+import API from '../utils/api';
 
-const HERO_DESKTOP = '/images/dashboard-page.jpg';
-const HERO_MOBILE  = '/images/dashboard-page.jpg';
+const HERO_DESKTOP = '/images/dashboard-page.png';
+const HERO_MOBILE  = '/images/dashboard-page.png';
 
 /* ====== WIB helpers (cek “hari ini” secara robust) ====== */
 function wibYMD(date = new Date()) {
@@ -18,38 +19,22 @@ function wibYMD(date = new Date()) {
 }
 const TODAY_WIB = wibYMD();
 
-/* Cek apakah habit selesai “hari ini”.
-   - Gunakan beragam key yang mungkin dipakai backend/UI habits.
-   - Jika tidak ada sinyal yang meyakinkan, return null (unknown). */
+/* Cek apakah habit selesai “hari ini”. */
 function isDoneToday(h) {
-  // 1) boolean flags
   const boolKeys = ['doneToday', 'completedToday', 'isCompletedToday', 'isDoneToday', 'todayDone'];
   for (const k of boolKeys) {
     if (h?.hasOwnProperty(k)) return Boolean(h[k]);
   }
-
-  // 2) cap waktu terakhir selesai
   const dateKeys = ['doneAt', 'completedAt', 'lastCompletedAt', 'lastDoneAt', 'lastCheckInAt'];
   for (const k of dateKeys) {
     const v = h?.[k];
     if (!v) continue;
     const d = new Date(v);
-    if (!isNaN(d)) {
-      if (wibYMD(d) === TODAY_WIB) return true;
-    }
+    if (!isNaN(d) && wibYMD(d) === TODAY_WIB) return true;
   }
-
-  // 3) daftar penyelesaian (beragam bentuk)
-  const lists = [
-    h?.completions,
-    h?.completionDates,
-    h?.doneDates,
-    h?.history,
-  ].filter(Boolean);
-
+  const lists = [h?.completions, h?.completionDates, h?.doneDates, h?.history].filter(Boolean);
   for (const list of lists) {
     if (!Array.isArray(list)) continue;
-    // elemen bisa berupa string tanggal atau objek {date: "..."}
     for (const item of list) {
       const val = typeof item === 'string' ? item : (item?.date || item?.at || item?.completedAt);
       if (!val) continue;
@@ -57,8 +42,6 @@ function isDoneToday(h) {
       if (!isNaN(d) && wibYMD(d) === TODAY_WIB) return true;
     }
   }
-
-  // 4) tidak ada sinyal yang bisa dipakai
   return null;
 }
 
@@ -69,12 +52,11 @@ function countPendingTodayInfo(habits) {
   let undone = 0;
   for (const h of habits) {
     const d = isDoneToday(h);
-    if (d === null) continue; // unknown
+    if (d === null) continue;
     known++;
     if (!d) undone++;
   }
   if (known > 0) return { pending: undone, reliable: true };
-  // tidak ada sinyal yang jelas → jangan nebak
   return { pending: 0, reliable: false };
 }
 
@@ -92,7 +74,7 @@ export default function Dashboard() {
     () => sessionStorage.getItem('justClaimed') === '1'
   );
 
-  // username untuk sapaan
+  // username untuk sapaan (boleh preload dari localStorage, tapi SELALU akan dioverride dari server)
   const [username, setUsername] = useState(() => {
     try {
       const raw = localStorage.getItem('user');
@@ -107,21 +89,18 @@ export default function Dashboard() {
     [habits, points]
   );
 
-  async function fetchMeIfNeeded() {
-    if (username) return;
+  // >>> Perbaikan utama: SELALU refresh profil terbaru dari server
+  async function fetchMe() {
     const token = localStorage.getItem('token');
     if (!token) return;
     try {
-      const res = await fetch('http://localhost:5000/users/me', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const me = await res.json();
-        const name = me?.username || me?.name || '';
-        if (name) setUsername(name);
-        try { localStorage.setItem('user', JSON.stringify(me)); } catch {}
-      }
-    } catch {}
+      const { data: me } = await API.get('/users/me');
+      const name = me?.username || me?.name || me?.email?.split('@')[0] || '';
+      if (name) setUsername(name);
+      try { localStorage.setItem('user', JSON.stringify(me)); } catch {}
+    } catch {
+      // diamkan; kalau 401 akan di-handle di load()
+    }
   }
 
   async function load() {
@@ -131,7 +110,8 @@ export default function Dashboard() {
       const token = localStorage.getItem('token');
       if (!token) return navigate('/login');
 
-      await fetchMeIfNeeded();
+      // Ambil profil TERBARU dari server (override localStorage lama seperti "angga88")
+      await fetchMe();
 
       const hs = await getHabits();
       setHabits(Array.isArray(hs) ? hs : []);
@@ -143,7 +123,7 @@ export default function Dashboard() {
       setHasClaimable(claimables.length > 0);
     } catch (e) {
       setMsg(e?.error || 'Gagal memuat dashboard.');
-      if (e?.status === 401) {
+      if (e?.status === 401 || e?.response?.status === 401) {
         localStorage.removeItem('token');
         navigate('/login');
       }
@@ -253,7 +233,6 @@ export default function Dashboard() {
                       <>Mantap! Semua habit hari ini selesai. Lanjutkan streak-mu 🚀</>
                     )
                   ) : (
-                    // Pesan netral bila status "today" tidak dapat dipastikan dari data
                     <>Yuk cek daftar habitmu hari ini dan lanjutkan streak! ✅</>
                   )}
                 </p>

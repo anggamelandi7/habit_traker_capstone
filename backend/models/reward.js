@@ -1,4 +1,3 @@
-// models/reward.js
 "use strict";
 
 module.exports = (sequelize, DataTypes) => {

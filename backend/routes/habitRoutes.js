@@ -14,7 +14,7 @@ function validateIdParam(req, res, next) {
   next();
 }
 
-// path statis dulu
+// path statis d
 router.get('/grouped', verifyToken, ctrl.listHabitsGrouped);
 router.get('/', verifyToken, ctrl.listHabits);
 

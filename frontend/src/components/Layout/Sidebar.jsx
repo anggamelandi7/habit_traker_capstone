@@ -6,14 +6,13 @@ import {
   Target,
   Gift,
   BarChart3,
-  Settings,
   ChevronLeft,
   ChevronRight,
   User2,
   LogOut,
 } from 'lucide-react';
 
-// Menu utama & sekunder
+// Menu utama
 const PRIMARY = [
   { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
   { label: 'Habits', path: '/habits', icon: CheckSquare },
@@ -21,7 +20,6 @@ const PRIMARY = [
   { label: 'Rewards', path: '/rewards', icon: Gift },
   { label: 'Stats', path: '/stats', icon: BarChart3 },
 ];
-const SECONDARY = [{ label: 'Settings', path: '/settings', icon: Settings }];
 
 function cx(...a) { return a.filter(Boolean).join(' '); }
 
@@ -45,7 +43,7 @@ function NavItem({ to, icon: Icon, label, collapsed }) {
   );
 }
 
-// 👉 Sidebar membaca & mengubah state via props (bukan internal)
+// idebar membaca & mengubah state via props (bukan internal)
 export default function Sidebar({ collapsed, setCollapsed }) {
   const nav = useNavigate();
   const { pathname } = useLocation();
@@ -69,9 +67,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
   useEffect(() => { setOpenProfile(false); }, [pathname]);
 
   const onLogout = () => {
-    nav('/logout'); // atau bersihkan token & redirect ke login
-    // localStorage.removeItem('token');
-    // nav('/login');
+    nav('/logout');
   };
 
   return (
@@ -111,15 +107,6 @@ export default function Sidebar({ collapsed, setCollapsed }) {
           {PRIMARY.map((m) => (
             <NavItem key={m.path} to={m.path} icon={m.icon} label={m.label} collapsed={collapsed} />
           ))}
-        </div>
-
-        <div className="mt-6">
-          {!collapsed && <div className="px-2 text-xs font-semibold text-gray-500 mb-2">LAINNYA</div>}
-          <div className="space-y-1">
-            {SECONDARY.map((m) => (
-              <NavItem key={m.path} to={m.path} icon={m.icon} label={m.label} collapsed={collapsed} />
-            ))}
-          </div>
         </div>
       </nav>
 

@@ -1,4 +1,3 @@
-// backend/controllers/habitController.js
 const { Op, fn, col } = require("sequelize");
 const { sequelize, Habit, Achievement, HabitCompletion } = require("../models");
 const { addPointsAtomic } = require("../services/pointsService");
@@ -255,7 +254,7 @@ async function completeHabit(req, res) {
     const effFreq = getEffectiveFrequency(habit, achievement);
     const { periodStart, periodEnd } = getCurrentWindowWIB(effFreq);
 
-    // Jika achievement ada → STRICT GUARD berdasarkan window kartu
+    // Jika achievement ada STRICT GUARD berdasarkan window kartu
     if (achievement) {
       const now = new Date();
 

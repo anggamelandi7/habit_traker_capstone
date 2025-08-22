@@ -1,6 +1,4 @@
-// models/achievement.js
 "use strict";
-
 module.exports = (sequelize, DataTypes) => {
   const Achievement = sequelize.define(
     "Achievement",
@@ -9,10 +7,9 @@ module.exports = (sequelize, DataTypes) => {
       targetPoints: { type: DataTypes.INTEGER, allowNull: false, validate: { min: 0 } },
       description: DataTypes.TEXT,
 
-      // legacy (boleh dibiarkan untuk kompatibilitas)
+
       expiryDate: DataTypes.DATEONLY,
 
-      // NEW: disiplin ketat berbasis waktu
       status: {
         type: DataTypes.ENUM("ACTIVE", "COMPLETED", "EXPIRED"),
         allowNull: false,

@@ -1,4 +1,3 @@
-// backend/controllers/achievementController.js
 const { Op, fn, col } = require('sequelize');
 const {
   sequelize,
@@ -537,12 +536,10 @@ async function claimAchievement(_req, res) {
 }
 
 module.exports = {
-  // NEW
+
   getActive,
   createDaily,
   createWeekly,
-
-  // existing / kompat
   createAchievement,
   listAchievements,
   getAchievementDetail,
