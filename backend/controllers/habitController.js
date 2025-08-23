@@ -87,8 +87,7 @@ async function listHabits(req, res) {
         const now = new Date();
         const inWindow = h.Achievement.validFrom && h.Achievement.validTo
           ? now >= h.Achievement.validFrom && now <= h.Achievement.validTo
-          : true; // fallback kompat
-
+          : true; 
         if (h.Achievement.status && h.Achievement.status !== "ACTIVE") canComplete = false;
         if (!inWindow) canComplete = false;
       }

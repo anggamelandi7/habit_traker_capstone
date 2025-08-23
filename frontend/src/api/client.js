@@ -1,10 +1,6 @@
-// src/api/client.js
-// Klien fetch yang stabil: normalisasi BASE URL, auto header token,
-// handle 204/teks, timeout, auto-logout saat 401/403, dan kompatibel ESLint.
 
 const RAW_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
 
-// --- helpers yang dipakai di bawah (didefinisikan dulu agar no-undef/no-use-before-define aman) ---
 
 // Normalisasi base: pastikan ada protokol & hapus trailing slash
 function normalizeBase(u) {

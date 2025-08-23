@@ -1,8 +1,11 @@
-// src/pages/Habits.jsx
+
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import API from '../utils/api';
 import Calendar, { startOfWeekMon, addDays, dateKeyLocal } from '../components/calendar/Calendar';
+
+
+const ILLUSTRATION_URL = '/images/habits.png';
 
 /* ====== API helpers (langsung via axios instance) ====== */
 async function getHabitsGroupedAPI() {
@@ -58,6 +61,7 @@ async function getLedgerRangeAPI({ startDate, endDate, limit = 1000 }) {
   }
 }
 
+/* ========== Komponen kecil: Section daftar habits ========== */
 function Section({ title, items, onCompleteClick, onEditClick, onDeleteClick, tone = 'indigo' }) {
   const total = items?.length || 0;
   const isDoneFn = (h) => h.status === 'done' || h.canComplete === false;
@@ -92,14 +96,22 @@ function Section({ title, items, onCompleteClick, onEditClick, onDeleteClick, to
       {/* Isi */}
       {(!items || items.length === 0) ? (
         <div className="mt-4 rounded-xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center">
-          <div className="text-3xl mb-1">🗓️</div>
-          <div className="text-gray-700 font-medium">Belum ada habit di bagian ini.</div>
+          <div className="text-gray-800 font-medium text-base">Belum ada habit di bagian ini.</div>
           <div className="text-sm text-gray-600 mt-1">
             Tambah habit baru dari halaman <span className="font-medium">Achievements</span>.
           </div>
+
+          {/* Ilustrasi untuk empty state */}
+          <img
+            src={ILLUSTRATION_URL}
+            alt="Ilustrasi kebiasaan"
+            className="mx-auto mt-4 w-40 h-auto opacity-95"
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          />
+
           <Link
             to="/achievements"
-            className="inline-flex items-center gap-2 mt-3 rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+            className="inline-flex items-center gap-2 mt-4 rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
           >
             ➕ Buat dari Achievements
           </Link>
@@ -444,7 +456,7 @@ export default function Habits() {
     }
   };
 
-  // hitung ringkas untuk subheader
+  // hitung ringkas untuk hero
   const dDone = daily.filter(h => h.status === 'done' || h.canComplete === false).length;
   const dTotal = daily.length;
   const wDone = weekly.filter(h => h.status === 'done' || h.canComplete === false).length;
@@ -461,38 +473,67 @@ export default function Habits() {
         weekStart="today"
       />
 
-      {/* Info ringkas + CTA */}
-      <div className="bg-white rounded-2xl shadow p-6">
-        <h2 className="text-xl font-semibold text-gray-900">Habits (Monitor & Kelola)</h2>
-        <p className="text-gray-600 text-sm">
-          Lihat dan selesaikan habit harian/mingguanmu. Tambah habit dilakukan dari halaman <span className="font-medium">Achievements</span>.
-        </p>
-        {meta?.daily?.endWIB && (
-          <p className="text-gray-500 text-xs mt-2">
-            Periode aktif (WIB): Daily s/d <span className="font-medium">{meta.daily.endWIB}</span> • Weekly s/d <span className="font-medium">{meta.weekly?.endWIB || '-'}</span>
-          </p>
-        )}
-        {/* Ringkasan kecil */}
-        <div className="mt-4 flex flex-wrap gap-3 text-sm">
-          <span className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50/70 px-3 py-1 text-indigo-700">
-            🗓️ Hari ini: <b>{dDone}</b> / {dTotal} selesai
-          </span>
-          <span className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-1 text-emerald-700">
-            📅 Minggu ini: <b>{wDone}</b> / {wTotal} selesai
-          </span>
-          <Link
-            to="/achievements"
-            className="ml-auto inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white px-4 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
-          >
-            ➕ Tambah habit dari Achievements
-          </Link>
+      {/* ===== HERO dengan ilustrasi ===== */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow">
+        <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-white/10 blur-2xl" />
+        <div className="absolute -bottom-12 -left-12 w-72 h-72 rounded-full bg-white/10 blur-2xl" />
+
+        <div className="grid md:grid-cols-5 gap-6 items-center p-6 md:p-8 relative">
+          {/* Copy */}
+          <div className="md:col-span-3">
+            <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Kelola & Selesaikan Habits</h2>
+            <p className="mt-2 text-white/90">
+              Pantau progres harian dan mingguanmu. Tambahkan kebiasaan baru dari{' '}
+              <Link to="/achievements" className="underline decoration-white/60 underline-offset-2 hover:decoration-white">
+                halaman Achievements
+              </Link>.
+            </p>
+
+            {/* Ringkasan kecil */}
+            <div className="mt-4 flex flex-wrap gap-3 text-sm">
+              <span className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-3 py-1">
+                🗓️ Hari ini: <b>{dDone}</b> / {dTotal} selesai
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-3 py-1">
+                📅 Minggu ini: <b>{wDone}</b> / {wTotal} selesai
+              </span>
+              {meta?.daily?.endWIB && (
+                <span className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-3 py-1">
+                  ⏱️ Daily s/d <b>{meta.daily.endWIB}</b>{' '}
+                  {meta?.weekly?.endWIB ? <>• Weekly s/d <b>{meta.weekly.endWIB}</b></> : null}
+                </span>
+              )}
+            </div>
+
+            <div className="mt-4">
+              <Link
+                to="/achievements"
+                className="inline-flex items-center gap-2 rounded-full bg-white text-indigo-700 font-medium px-4 py-2 hover:bg-indigo-50"
+              >
+                ➕ Tambah habit dari Achievements
+              </Link>
+            </div>
+          </div>
+
+          {/* Ilustrasi */}
+          <div className="md:col-span-2 flex items-center justify-center">
+            <div className="relative w-full max-w-sm">
+              <div className="absolute inset-0 rounded-2xl bg-white/10 blur-md" />
+              <img
+                src={ILLUSTRATION_URL}
+                alt="Ilustrasi orang mencentang daftar kebiasaan"
+                className="relative w-full h-auto object-contain drop-shadow-xl"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
       {msg && <div className="p-2 border rounded text-sm bg-white shadow-sm">{msg}</div>}
 
       {loading ? (
-        <div>Memuat…</div>
+        <div className="bg-white rounded-2xl p-6 shadow">Memuat…</div>
       ) : (
         <>
           <Section

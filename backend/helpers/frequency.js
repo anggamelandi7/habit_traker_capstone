@@ -1,7 +1,7 @@
 /**
  * Hitung frequency efektif habit
- * - Kalau habit terikat ke Achievement → ikut frequency Achievement
- * - Kalau standalone → pakai habit.frequency
+ * - Kalau habit terikat ke Achievement - ikut frequency Achievement
+ * - Kalau standalone - pakai habit.frequency
  */
 function getEffectiveFrequency(habit, achievement) {
   if (habit.achievementId && achievement) {

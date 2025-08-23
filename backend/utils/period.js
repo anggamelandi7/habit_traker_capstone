@@ -1,4 +1,4 @@
-// backend/utils/period.js
+
 
 /**
  * Utility perhitungan periode (WIB) untuk Achievements

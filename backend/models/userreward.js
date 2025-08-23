@@ -1,16 +1,31 @@
-"use strict";
+'use strict';
 
 module.exports = (sequelize, DataTypes) => {
-  const UserReward = sequelize.define("UserReward", {
-    userId:   { type: DataTypes.INTEGER, allowNull: false },
-    rewardId: { type: DataTypes.INTEGER, allowNull: false },
-    status:   { type: DataTypes.ENUM("claimable", "claimed"), allowNull: false, defaultValue: "claimed" },
-    claimedAt:{ type: DataTypes.DATE, allowNull: true },
+  const UserReward = sequelize.define('UserReward', {
+    // status klaim: pakai STRING biar lintas-DB aman (CLAIMED/CANCELED/EXPIRED)
+    status: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'CLAIMED',
+      validate: { isIn: [['CLAIMED', 'CANCELED', 'EXPIRED']] },
+    },
+    claimedAt: DataTypes.DATE,
+
+    // kolom tambahan untuk ledger/riwayat
+    pointsSpent: DataTypes.INTEGER,
+    balanceBefore: DataTypes.INTEGER,
+    balanceAfter: DataTypes.INTEGER,
+    idempotencyKey: { type: DataTypes.STRING, unique: true },
+    metadata: DataTypes.JSON,
+  }, {
+    tableName: 'userRewards', 
   });
 
   UserReward.associate = (models) => {
-    UserReward.belongsTo(models.User,   { foreignKey: "userId", as: "user" });
-    UserReward.belongsTo(models.Reward, { foreignKey: "rewardId", as: "reward" });
+    UserReward.belongsTo(models.User,   { foreignKey: 'userId' });
+    UserReward.belongsTo(models.Reward, { foreignKey: 'rewardId' });
+    // Opsional:
+    // UserReward.belongsTo(models.Achievement, { foreignKey: 'achievementId' });
   };
 
   return UserReward;

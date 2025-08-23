@@ -1,21 +1,7 @@
 const { Op } = require('sequelize');
-const { sequelize, Reward, User } = require('../models');
-const { addPointsAtomic } = require('../services/pointsService');
+const { sequelize, Reward, User, UserReward } = require('../models');
 
-/* =========================================================
-   Helpers
-========================================================= */
-async function getUserBalance(userId, t = null) {
-  const user = await User.findByPk(userId, {
-    attributes: ['id', 'pointBalance', 'badge', 'username', 'email', 'totalPoints'],
-    transaction: t || undefined,
-    lock: t ? t.LOCK.UPDATE : undefined,
-  });
-  if (!user) throw new Error('User tidak ditemukan');
-  const balance = Number(user.pointBalance ?? user.totalPoints ?? 0);
-  return { user, balance };
-}
-
+/* ================== Helpers ================== */
 function hasField(inst, key) {
   try {
     if (!inst) return false;
@@ -24,18 +10,34 @@ function hasField(inst, key) {
   } catch { return false; }
 }
 
-/* =========================================================
-   POST /rewards
-========================================================= */
+async function getUserBalance(userId, t = null) {
+  const user = await User.findByPk(userId, {
+    attributes: ['id', 'username', 'email', 'badge', 'pointBalance', 'totalPoints'],
+    transaction: t || undefined,
+    lock: t ? t.LOCK.UPDATE : undefined,
+  });
+  if (!user) throw new Error('User tidak ditemukan');
+
+  // dukung dua skema saldo (pointBalance baru / totalPoints legacy)
+  const balance = Number(user.pointBalance ?? user.totalPoints ?? 0);
+  return { user, balance };
+}
+
+async function setUserBalance(user, newBalance, t) {
+  if (hasField(user, 'pointBalance')) user.set('pointBalance', newBalance);
+  else if (hasField(user, 'totalPoints')) user.set('totalPoints', newBalance);
+  await user.save({ transaction: t });
+}
+
+/* ================== POST /rewards (buat katalog) ================== */
 async function createReward(req, res) {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
 
     let { name, requiredPoints, description, expiryDate, isActive } = req.body || {};
     if ((requiredPoints === undefined || requiredPoints === null) && req.body?.points !== undefined) {
-      requiredPoints = req.body.points; 
+      requiredPoints = req.body.points;
     }
-
     if (!name || requiredPoints === undefined || requiredPoints === null) {
       return res.status(400).json({ error: 'name dan requiredPoints wajib diisi' });
     }
@@ -56,35 +58,40 @@ async function createReward(req, res) {
     return res.status(201).json({ message: 'Reward dibuat', reward });
   } catch (err) {
     console.error('POST /rewards error:', err);
-    return res.status(500).json({ error: 'Gagal membuat reward', detail: String(err?.message || err) });
+    return res.status(500).json({ error: 'Gagal membuat reward' });
   }
 }
 
-/* =========================================================
-   GET /rewards
-   -> kembalikan { balance, items[] } + flag claimable
-========================================================= */
+/* ================== GET /rewards -> daftar + saldo ================== */
 async function listRewards(req, res) {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
-
     const now = new Date();
-    const { balance } = await getUserBalance(req.user.id);
+    const userId = req.user.id;
+    const { balance } = await getUserBalance(userId);
 
+    // Katalog reward aktif milik user
     const rows = await Reward.findAll({
       where: {
-        userId: req.user.id,
-        isActive: true, 
+        userId,
+        isActive: true,
         [Op.or]: [{ expiryDate: null }, { expiryDate: { [Op.gt]: now } }],
       },
       order: [['requiredPoints', 'ASC']],
     });
 
+    // Ambil klaim yang sudah terjadi dari ledger userRewards
+    const rewardIds = rows.map(r => r.id);
+    const claimed = await UserReward.findAll({
+      where: { userId, rewardId: { [Op.in]: rewardIds }, status: 'CLAIMED' },
+      attributes: ['rewardId'],
+    });
+    const claimedSet = new Set(claimed.map(r => r.rewardId));
+
     const items = rows.map(r => {
       const required = Number(r.requiredPoints || 0);
-      const hasStatus = hasField(r, 'status');
-      const claimed = hasStatus ? r.get('status') === 'CLAIMED' : false;
-      const claimable = !claimed && required >= 0 && balance >= required && (r.isActive ?? true) === true;
+      const alreadyClaimed = claimedSet.has(r.id); // sumber kebenaran: ledger
+      const claimable = !alreadyClaimed && balance >= required && (r.isActive ?? true) === true;
 
       return {
         id: r.id,
@@ -94,8 +101,6 @@ async function listRewards(req, res) {
         requiredPoints: required,
         isActive: r.isActive,
         expiryDate: r.expiryDate,
-        claimedAt: hasField(r, 'claimedAt') ? r.get('claimedAt') : null,
-        status: hasStatus ? r.get('status') : undefined,
         claimable,
         remainingPoints: Math.max(0, required - balance),
       };
@@ -104,30 +109,11 @@ async function listRewards(req, res) {
     return res.json({ balance, items });
   } catch (err) {
     console.error('GET /rewards error:', err);
-    return res.status(500).json({ error: 'Gagal mengambil rewards', detail: String(err?.message || err) });
+    return res.status(500).json({ error: 'Gagal mengambil rewards' });
   }
 }
 
-/* =========================================================
-   GET /rewards/user (riwayat semua reward user)
-========================================================= */
-async function getUserRewards(req, res) {
-  try {
-    if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
-    const rows = await Reward.findAll({
-      where: { userId: req.user.id },
-      order: [['createdAt', 'DESC']],
-    });
-    res.json(rows);
-  } catch (err) {
-    console.error('GET /rewards/user error:', err);
-    res.status(500).json({ error: 'Gagal mengambil data rewards' });
-  }
-}
-
-/* =========================================================
-   GET /rewards/total
-========================================================= */
+/* ================== GET /rewards/total ================== */
 async function getTotalPoints(req, res) {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
@@ -147,22 +133,20 @@ async function getTotalPoints(req, res) {
   }
 }
 
-/* =========================================================
-   POST /rewards/:id/claim
-   -> kunci reward agar TIDAK respawn: set isActive=false
-      + (jika ada) status='CLAIMED', claimedAt=now
-========================================================= */
+/* ================== POST /rewards/:id/claim ================== */
 async function claimReward(req, res) {
   const t = await sequelize.transaction();
   try {
     if (!req.user?.id) { await t.rollback(); return res.status(401).json({ error: 'Unauthorized' }); }
+
     const userId = req.user.id;
     const rewardId = Number(req.params.id);
+    const idempotencyKey = req.headers['x-idempotency-key'] || null;
 
-    // Lock user & saldo
-    const { balance } = await getUserBalance(userId, t);
+    // Lock saldo user
+    const { user, balance } = await getUserBalance(userId, t);
 
-    // Lock reward
+    // Lock reward yang aktif milik user
     const reward = await Reward.findOne({
       where: { id: rewardId, userId, isActive: true },
       transaction: t,
@@ -170,35 +154,44 @@ async function claimReward(req, res) {
     });
     if (!reward) { await t.rollback(); return res.status(404).json({ error: 'Reward tidak ditemukan / tidak aktif' }); }
 
+    // Cek expiry
     if (reward.expiryDate && new Date(reward.expiryDate) < new Date()) {
       await t.rollback(); return res.status(400).json({ error: 'Reward sudah kadaluarsa' });
     }
 
-    // jika model sudah punya status 'CLAIMED', jangan dobel klaim
-    if (hasField(reward, 'status') && reward.get('status') === 'CLAIMED') {
-      await t.rollback(); return res.status(409).json({ error: 'Reward sudah diklaim' });
-    }
+    // Sudah pernah diklaim?
+    const dupe = await UserReward.findOne({
+      where: { userId, rewardId, status: 'CLAIMED' },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (dupe) { await t.rollback(); return res.status(409).json({ error: 'Reward sudah diklaim' }); }
 
+    // Cukup poin?
     const cost = Number(reward.requiredPoints || 0);
     if (balance < cost) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Poin belum cukup untuk klaim reward ini' });
+      await t.rollback(); return res.status(400).json({ error: 'Poin belum cukup untuk klaim reward ini' });
     }
 
-    // Kurangi poin via ledger (DALAM transaksi yang sama)
-    const ledgerRes = await addPointsAtomic({
-      userId,
-      delta: -cost,
-      reason: 'claim_reward',
-      refType: 'Reward',
-      refId: reward.id,
-      transaction: t,
-    });
+    // Kurangi saldo user
+    const newBalance = balance - cost;
+    await setUserBalance(user, newBalance, t);
 
-    // Kunci reward agar tidak respawn
+    // Catat di ledger userRewards
+    await UserReward.create({
+      userId,
+      rewardId,
+      status: 'CLAIMED',
+      claimedAt: new Date(),
+      pointsSpent: cost,
+      balanceBefore: balance,
+      balanceAfter: newBalance,
+      idempotencyKey,
+      metadata: { client: 'web' },
+    }, { transaction: t });
+
+    // Kunci reward agar tidak "muncul lagi"
     reward.isActive = false;
-    if (hasField(reward, 'claimedAt')) reward.set('claimedAt', new Date());
-    if (hasField(reward, 'status')) reward.set('status', 'CLAIMED');
     await reward.save({ transaction: t });
 
     await t.commit();
@@ -209,22 +202,77 @@ async function claimReward(req, res) {
         name: reward.name,
         requiredPoints: cost,
         isActive: reward.isActive,
-        claimedAt: hasField(reward, 'claimedAt') ? reward.get('claimedAt') : null,
-        status: hasField(reward, 'status') ? reward.get('status') : undefined,
       },
-      balance: ledgerRes?.balanceAfter,
+      balance: newBalance,
     });
   } catch (err) {
-    console.error('POST /rewards/:id/claim error:', err);
     await t.rollback();
-    res.status(500).json({ error: 'Gagal klaim reward', detail: String(err?.message || err) });
+    if (err?.name === 'SequelizeUniqueConstraintError') {
+      // jika user klik ganda sangat cepat & kena unique (userId,rewardId)
+      return res.status(200).json({ message: 'Idempotent OK' });
+    }
+    console.error('POST /rewards/:id/claim error:', err);
+    res.status(500).json({ error: 'Gagal klaim reward' });
+  }
+}
+
+/* ================== GET /rewards/history ================== */
+async function getRewardHistory(req, res) {
+  try {
+    if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
+
+    const userId = req.user.id;
+    const rows = await UserReward.findAll({
+      where: { userId },
+      include: [{ model: Reward, attributes: ['id', 'name', 'description', 'requiredPoints', 'isActive', 'expiryDate'] }],
+      order: [['claimedAt', 'DESC'], ['createdAt', 'DESC']],
+      limit: Number(req.query.limit) || 200,
+    });
+
+    const items = rows.map(r => ({
+      id: r.id,
+      rewardId: r.rewardId,
+      name: r.Reward?.name || `Reward #${r.rewardId}`,
+      description: r.Reward?.description || null,
+      requiredPoints: r.Reward?.requiredPoints ?? r.pointsSpent ?? null,
+      status: r.status,
+      claimedAt: r.claimedAt,
+      pointsSpent: r.pointsSpent,
+      balanceBefore: r.balanceBefore,
+      balanceAfter: r.balanceAfter,
+      isActive: r.Reward?.isActive,
+      expiryDate: r.Reward?.expiryDate,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }));
+
+    res.json({ items });
+  } catch (err) {
+    console.error('GET /rewards/history error:', err);
+    res.status(500).json({ error: 'Gagal memuat riwayat reward' });
+  }
+}
+
+/* ================== (Legacy) GET /rewards/user ================== */
+async function getUserRewards(req, res) {
+  try {
+    if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
+    const rows = await Reward.findAll({
+      where: { userId: req.user.id },
+      order: [['createdAt', 'DESC']],
+    });
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /rewards/user error:', err);
+    res.status(500).json({ error: 'Gagal mengambil data rewards' });
   }
 }
 
 module.exports = {
   createReward,
   listRewards,
-  getUserRewards,
   getTotalPoints,
   claimReward,
+  getRewardHistory,
+  getUserRewards,
 };

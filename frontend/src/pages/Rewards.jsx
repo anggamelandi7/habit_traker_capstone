@@ -1,6 +1,6 @@
 // src/pages/Rewards.jsx
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import API from '../utils/api';
+import { getRewards as apiGetRewards, claimReward as apiClaimReward, getRewardHistory as apiGetHistory } from '../api/rewards';
 
 /* ============ Helpers WIB & formatting ============ */
 function fmtWIB(iso) {
@@ -12,22 +12,6 @@ function fmtWIB(iso) {
     hour: '2-digit', minute: '2-digit'
   }).format(d);
 }
-function wibYMD(date = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit'
-  }).format(date);
-}
-function wibWeekKey(ymd) {
-  const d = new Date(`${ymd}T00:00:00+07:00`);
-  const day = (d.getUTCDay() + 6) % 7;
-  const thu = new Date(d);
-  thu.setUTCDate(d.getUTCDate() + (3 - day));
-  const year = thu.getUTCFullYear();
-  const jan4 = new Date(Date.UTC(year, 0, 4));
-  const diff = (thu - jan4) / 86400000;
-  const week = 1 + Math.floor((diff + ((jan4.getUTCDay() + 6) % 7)) / 7);
-  return `${year}-W${String(week).padStart(2, '0')}`;
-}
 const CLAIM_GUARD_KEY = 'claimGuard.v1';
 const nameKey = (s) => (s || '').toString().trim().toLowerCase();
 
@@ -35,37 +19,11 @@ const nameKey = (s) => (s || '').toString().trim().toLowerCase();
 function setGuard(name) {
   try {
     const map = JSON.parse(localStorage.getItem(CLAIM_GUARD_KEY) || '{}');
-    const ymd = wibYMD(); const wk = wibWeekKey(ymd);
-    map[nameKey(name)] = { claimedD: ymd, claimedW: wk, updatedAt: Date.now() };
+    const now = new Date();
+    const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+    map[nameKey(name)] = { claimedD: ymd, updatedAt: Date.now() };
     localStorage.setItem(CLAIM_GUARD_KEY, JSON.stringify(map));
   } catch {}
-}
-
-/* ============ API helpers ============ */
-async function apiGetRewards() {
-  const { data } = await API.get('/rewards');
-  if (Array.isArray(data)) {
-    // fallback bentuk lama (array)
-    let balance = 0;
-    try { const r = await API.get('/rewards/total'); balance = Number(r?.data?.balance || 0); } catch {}
-    const items = data.map(r => {
-      const req = Number(r.requiredPoints || 0);
-      const already = (r.status || '').toLowerCase() === 'claimed' || r.isActive === false || !!r.claimedAt;
-      const claimable = !already && balance >= req && (r.isActive ?? true);
-      return { ...r, claimable, remainingPoints: Math.max(0, req - balance) };
-    });
-    return { items, balance };
-  }
-  return { items: Array.isArray(data?.items) ? data.items : [], balance: Number(data?.balance || 0) };
-}
-async function apiClaimReward(id) {
-  const { data } = await API.post(`/rewards/${id}/claim`);
-  return data;
-}
-async function apiGetHistory() {
-  // semua reward user (aktif/nonaktif/claimed/expired)
-  const { data } = await API.get('/rewards/user');
-  return Array.isArray(data) ? data : [];
 }
 
 /* ============ Confetti (CSS-only) ============ */
@@ -111,6 +69,10 @@ function Confetti({ show = false, onDone }) {
           />
         ))}
       </div>
+      <style>{`
+        @keyframes confettiFly { to { transform: translate(var(--x), var(--y)) rotate(var(--rot)); opacity: 0; } }
+        .confetti-piece { animation-name: confettiFly; animation-timing-function: cubic-bezier(.2,.6,.2,1); }
+      `}</style>
     </div>
   );
 }
@@ -127,7 +89,6 @@ function Progress({ value = 0 }) {
     </div>
   );
 }
-
 function StatusPill({ status, isActive }) {
   const s = (status || '').toLowerCase();
   if (s === 'claimed') return <span className="px-2 py-0.5 text-xs rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Claimed</span>;
@@ -188,20 +149,19 @@ function RewardCard({ r, onClaim, claiming }) {
 
 /* ============ History Row ============ */
 function HistoryItem({ item }) {
-  const required = Number(item.requiredPoints || 0);
-  const status = (item.status || (item.isActive ? 'available' : 'inactive')).toLowerCase();
+  const required = Number(item.requiredPoints || item.pointsSpent || 0);
   return (
     <div className="rounded-xl p-4 bg-white border hover:shadow-sm transition flex items-start justify-between gap-3 fadein-up">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <div className="font-semibold text-gray-900 truncate">{item.name}</div>
-          <StatusPill status={status} isActive={item.isActive} />
+          <StatusPill status={item.status} isActive={item.isActive} />
         </div>
         {item.description && <div className="text-sm text-gray-600 mt-0.5 line-clamp-2">{item.description}</div>}
         <div className="text-xs text-gray-500 mt-1">
           Target: <b>{required}</b>
           {item.claimedAt && <> • Diklaim: <b>{fmtWIB(item.claimedAt)}</b></>}
-          {item.expiryDate && <> • Kedaluwarsa: <b>{fmtWIB(item.expiryDate)}</b></>}
+          {typeof item.balanceAfter === 'number' && <> • Saldo: <b>{item.balanceAfter}</b></>}
         </div>
       </div>
       <div className="shrink-0 w-9 h-9 grid place-items-center rounded-full bg-gray-50">🏷️</div>
@@ -239,8 +199,7 @@ export default function Rewards() {
   const fetchHistory = useCallback(async () => {
     setLoadingHist(true);
     try {
-      const rows = await apiGetHistory();
-      // urutkan: claimedAt desc -> createdAt desc
+      const rows = await apiGetHistory(200);
       rows.sort((a, b) => {
         const ca = new Date(a.claimedAt || 0).getTime();
         const cb = new Date(b.claimedAt || 0).getTime();
@@ -296,7 +255,7 @@ export default function Rewards() {
         setShowConfetti(false);
       }, 1000);
     } catch (e) {
-      setToast(e?.response?.data?.error || 'Gagal klaim reward');
+      setToast(e?.message || 'Gagal klaim reward');
     } finally {
       setClaimingId(null);
     }
@@ -324,7 +283,7 @@ export default function Rewards() {
       )}
       <Confetti show={showConfetti} onDone={() => setShowConfetti(false)} />
 
-      {/* Header */}
+      {/* Header saldo + search */}
       <div className="bg-white rounded-2xl shadow p-5 md:p-6 flex items-start md:items-center justify-between gap-4 fadein-up">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-50 grid place-items-center text-indigo-600 animate-pop">🏆</div>
@@ -373,7 +332,7 @@ export default function Rewards() {
       {/* Content */}
       {tab === 'available' ? (
         <div>
-          {loading ? (
+          {!items || loading ? (
             <div className="text-gray-600">Memuat…</div>
           ) : visibleItems.length === 0 ? (
             <div className="rounded-2xl border border-dashed p-8 text-center text-gray-600 bg-white fadein-up">

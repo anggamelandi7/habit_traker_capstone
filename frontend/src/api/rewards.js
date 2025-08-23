@@ -1,4 +1,3 @@
-// src/api/rewards.js
 // Client wrapper untuk endpoint rewards.
 // Menggunakan instance axios dari src/utils/api (sudah ada auth header via interceptor)
 
@@ -17,10 +16,7 @@ function toMessage(err, fallback = "Terjadi kesalahan. Coba lagi.") {
   }
 }
 
-/**
- * Ambil rewards: backend mengembalikan { balance, items: [...] }
- * Normalisasi supaya selalu { items, balance }
- */
+/** Ambil rewards -> { items, balance } */
 export async function getRewards() {
   try {
     const { data } = await API.get("/rewards");
@@ -36,30 +32,36 @@ export async function getRewards() {
   }
 }
 
-/**
- * Klaim reward by id
- * @param {number|string} rewardId
- */
-export async function claimReward(rewardId) {
+/** Klaim reward by id (dengan idempotency sederhana) */
+export async function claimReward(rewardId, payload = {}) {
   try {
-    const { data } = await API.post(`/rewards/${rewardId}/claim`);
-    return data; // mis. { balance, reward }
+    const key = `${rewardId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const { data } = await API.post(`/rewards/${rewardId}/claim`, payload, {
+      headers: { "x-idempotency-key": key },
+    });
+    return data; // { message, balance, reward }
   } catch (err) {
     throw new Error(toMessage(err, "Gagal klaim reward"));
   }
 }
 
-/**
- * (Opsional) Ringkasan poin/ledger apabila endpoint tersedia
- */
+/** Ringkasan saldo (opsional) */
 export async function getPointSummary() {
   try {
-    const { data } = await API.get("/points/summary");
-    return data; // { pointBalance, earned, spent, ... }
+    const { data } = await API.get("/rewards/total"); // disesuaikan agar tidak 404
+    return data; // { balance, ... }
   } catch (err) {
     throw new Error(toMessage(err, "Gagal memuat ringkasan poin"));
   }
 }
-
-// Alias supaya impor legacy tidak error di beberapa file:
 export { getPointSummary as getLedgerSummary };
+
+/** Riwayat klaim dari ledger userRewards */
+export async function getRewardHistory(limit = 100) {
+  try {
+    const { data } = await API.get("/rewards/history", { params: { limit } });
+    return Array.isArray(data?.items) ? data.items : [];
+  } catch (err) {
+    throw new Error(toMessage(err, "Gagal memuat riwayat klaim"));
+  }
+}

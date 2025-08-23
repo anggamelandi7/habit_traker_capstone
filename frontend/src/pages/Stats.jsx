@@ -8,9 +8,14 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend
 } from 'recharts';
 
-/* ================= Helpers WIB ================= */
+/* ============ Tema Warna ============ */
+const THEME = {
+  primary: '#8A2BE2', // blueviolet
+  primarySoft: '#8A2BE233',
+};
 const TZ = 'Asia/Jakarta';
 
+/* ================= Helpers WIB ================= */
 function fmtDateWIB(iso) {
   if (!iso) return '';
   return new Intl.DateTimeFormat('en-GB', {
@@ -37,41 +42,25 @@ const num = (v, d = 0) => {
   return Number.isFinite(n) ? n : d;
 };
 
-/* =============== Detektor jenis transaksi =============== */
+/* =============== Detektor jenis transaksi pada ledger (fallback) =============== */
 function isCompletionTx(it) {
   const deltaPos = num(it?.delta) > 0;
   const refType = (it?.refType || '').toString().toLowerCase();
   const reason = (it?.reason || '').toString().toLowerCase();
-
-  // jika backend menaruh objek habit → itu jelas completion
   if (deltaPos && it?.habit) return true;
-
-  // pola umum di backend-mu:
-  // - refType: 'Habit' | 'HabitCompletion'
-  // - reason: 'habit_completion' | 'complete_habit' | dll
   if (deltaPos && (refType === 'habit' || refType === 'habitcompletion')) return true;
   if (deltaPos && /habit/.test(reason) && (/complete|completion|selesai/.test(reason) || !/bonus|reward|claim/.test(reason))) return true;
-
   return false;
 }
-
 function isClaimTx(it) {
   const deltaNeg = num(it?.delta) < 0;
   const refType = (it?.refType || '').toString().toLowerCase();
   const reason = (it?.reason || '').toString().toLowerCase();
-
-  // jika backend menaruh objek reward → itu jelas claim
   if (deltaNeg && it?.reward) return true;
-
-  // pola umum:
-  // - refType: 'Reward'
-  // - reason: 'claim_reward' | 'reward_claim'
   if (deltaNeg && refType === 'reward') return true;
   if (deltaNeg && (/claim/.test(reason) || /reward/.test(reason))) return true;
-
   return false;
 }
-
 function describeTx(it) {
   if (it?.habit?.title) return `Completed: ${it.habit.title}`;
   if (it?.reward?.name) return `Claim: ${it.reward.name}`;
@@ -85,7 +74,6 @@ async function fetchUser() {
   const { data } = await API.get('/users/me');
   return data || null;
 }
-
 // Ledger: prioritas /points/ledger, fallback /ledger/range → /ledger
 async function fetchLedgerRange({ startDate, endDate, limit = 1000 }) {
   try {
@@ -105,7 +93,6 @@ async function fetchLedgerRange({ startDate, endDate, limit = 1000 }) {
     }
   }
 }
-
 // Balance: dari /rewards ({ balance }) → fallback /rewards/total
 async function fetchBalance() {
   try {
@@ -118,7 +105,6 @@ async function fetchBalance() {
   } catch { /* ignore */ }
   return 0;
 }
-
 // Habits distribusi Daily/Weekly
 async function fetchHabitsGrouped() {
   try {
@@ -135,6 +121,15 @@ async function fetchHabitsGrouped() {
     return { daily: [], weekly: [] };
   }
 }
+// **NEW**: Riwayat klaim reward dari userRewards (sumber resmi Total Claims)
+async function fetchRewardHistory(limit = 1000) {
+  try {
+    const { data } = await API.get('/rewards/history', { params: { limit } });
+    return Array.isArray(data?.items) ? data.items : [];
+  } catch {
+    return [];
+  }
+}
 
 /* ================= Komponen ================= */
 export default function Stats() {
@@ -144,6 +139,7 @@ export default function Stats() {
   const [balance, setBalance] = useState(0);
   const [ledger, setLedger] = useState({ items: [] });
   const [habitsGrouped, setHabitsGrouped] = useState({ daily: [], weekly: [] });
+  const [rewardHistory, setRewardHistory] = useState([]); // NEW
   const [error, setError] = useState(null);
 
   // fetch data
@@ -159,18 +155,19 @@ export default function Stats() {
         const startDate = ymdWIB(start);
         const endDate = ymdWIB(end);
 
-        const [me, bal, ledgerRes, hg] = await Promise.all([
+        const [me, bal, ledgerRes, hg, rh] = await Promise.all([
           fetchUser(),
           fetchBalance(),
           fetchLedgerRange({ startDate, endDate, limit: 2000 }),
           fetchHabitsGrouped(),
+          fetchRewardHistory(2000), // sumber kebenaran Total Claims
         ]);
         if (!mounted) return;
 
         setUsername(me?.username || me?.email || '');
         setBalance(bal);
 
-        // Normalisasi ledger items: atWIB, id, delta, balanceAfter
+        // Normalisasi ledger items
         const items = Array.isArray(ledgerRes?.items) ? ledgerRes.items.map((it, idx) => {
           const atUTC = it.atUTC || it.at || it.createdAt || new Date().toISOString();
           return {
@@ -182,7 +179,6 @@ export default function Stats() {
             balanceAfter: num(it.balanceAfter, it.balanceAfter),
           };
         }) : [];
-
         // urutkan terbaru → lama
         items.sort((a, b) => new Date(b.atUTC || 0) - new Date(a.atUTC || 0));
         setLedger({ items });
@@ -191,6 +187,8 @@ export default function Stats() {
           daily: Array.isArray(hg.daily) ? hg.daily : [],
           weekly: Array.isArray(hg.weekly) ? hg.weekly : [],
         });
+
+        setRewardHistory(rh); // simpan riwayat reward
       } catch (e) {
         if (!mounted) return;
         setError(e?.response?.data?.error || e?.message || 'Gagal memuat statistik');
@@ -207,9 +205,10 @@ export default function Stats() {
   const kpi = useMemo(() => {
     const totalHabits = (habitsGrouped.daily?.length || 0) + (habitsGrouped.weekly?.length || 0);
     const completions = items.filter(isCompletionTx).length;
-    const claims = items.filter(isClaimTx).length;
+    // 💡 klaim dihitung dari /rewards/history agar akurat
+    const claims = Array.isArray(rewardHistory) ? rewardHistory.length : 0;
     return { totalHabits, completions, claims, balance };
-  }, [habitsGrouped, items, balance]);
+  }, [habitsGrouped, items, balance, rewardHistory]);
 
   /* ========== Grafik: Completion Harian (range terpilih) ========== */
   const dailyCompletionData = useMemo(() => {
@@ -312,7 +311,7 @@ export default function Stats() {
         <div className="bg-white rounded-2xl shadow p-5">
           <div className="text-gray-500 text-sm">Total Claims</div>
           <div className="mt-1 flex items-end justify-between">
-            <div className="text-3xl font-semibold text-indigo-600">{kpi.claims}</div>
+            <div className="text-3xl font-semibold" style={{ color: THEME.primary }}>{kpi.claims}</div>
             <div className="floaty text-xl">🎁</div>
           </div>
         </div>
@@ -341,7 +340,7 @@ export default function Stats() {
               <YAxis allowDecimals={false} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="completed" name="Completed" />
+              <Bar dataKey="completed" name="Completed" fill={THEME.primary} />
             </BarChart>
           </ResponsiveContainer>
         )}
@@ -363,7 +362,7 @@ export default function Stats() {
               <YAxis allowDecimals={false} />
               <Tooltip />
               <Legend />
-              <Line type="monotone" dataKey="balance" name="Balance" strokeWidth={2} />
+              <Line type="monotone" dataKey="balance" name="Balance" stroke={THEME.primary} strokeWidth={2} dot={{ r: 2 }} />
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -384,7 +383,7 @@ export default function Stats() {
               <YAxis allowDecimals={false} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="count" name="Jumlah" />
+              <Bar dataKey="count" name="Jumlah" fill={THEME.primary} />
             </BarChart>
           </ResponsiveContainer>
         )}

@@ -1,4 +1,3 @@
-// src/api/user.js
 import { apiGet } from './client';
 
 /**

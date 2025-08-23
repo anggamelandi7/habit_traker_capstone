@@ -1,118 +1,209 @@
+// backend/controllers/achievementController.js
 const { Op, fn, col } = require('sequelize');
 const {
   sequelize,
   Achievement,
+  AchievementClaim,   // boleh tidak lengkap; kontrol lewat modelHasAttr
   Habit,
   HabitCompletion,
   Reward,
+  User,
 } = require('../models');
-const { fmtWIB, getCurrentWindowWIB, getWindowMetaWIB } = require('../utils/period');
 
-/* =========================================================
-   Helpers
-========================================================= */
-const toInt = (n, d = 0) => {
-  const x = Number(n);
-  return Number.isFinite(x) ? x : d;
-};
+/* ========================== Helpers umum ========================== */
+const TZ = 'Asia/Jakarta';
+const toInt = (n, d = 0) => { const x = Number(n); return Number.isFinite(x) ? x : d; };
+const modelHasAttr = (model, key) => !!(model?.rawAttributes && model.rawAttributes[key]);
 
-async function sumContribInWindow(userId, achievementId, winStart, winEnd, t = null) {
-  const ids = (
-    await Habit.findAll({
-      where: { userId, achievementId, isActive: true },
-      attributes: ['id'],
-      raw: true,
-      transaction: t || undefined,
-    })
-  ).map((x) => x.id);
-
-  if (!ids.length) return 0;
-
-  const rows = await HabitCompletion.findAll({
-    where: {
-      userId,
-      habitId: { [Op.in]: ids },
-      completedAt: { [Op.gte]: winStart, [Op.lt]: winEnd },
-    },
-    attributes: [[fn('COALESCE', fn('SUM', col('pointsAwarded')), 0), 'sumPoints']],
-    raw: true,
-    transaction: t || undefined,
-  });
-
-  return Number(rows?.[0]?.sumPoints || 0);
+function fmtWIB(isoOrDate) {
+  if (!isoOrDate) return '-';
+  try {
+    return new Intl.DateTimeFormat('id-ID', {
+      timeZone: TZ, year: 'numeric', month: 'short', day: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    }).format(new Date(isoOrDate));
+  } catch { return String(isoOrDate); }
 }
 
-function computeStatusFor(achievement, now = new Date(), progressPoints = 0) {
-  if (!achievement.validFrom || !achievement.validTo) return 'ACTIVE';
-  if (now <= achievement.validTo) return 'ACTIVE';
-  if ((achievement.frequency || 'Daily') === 'Weekly') {
-    const target = toInt(achievement.targetPoints);
-    return progressPoints >= target && target > 0 ? 'COMPLETED' : 'EXPIRED';
+// WIB start-of-day & end-of-day
+function wibStartOfDay(d = new Date()) {
+  const z = new Date(d);
+  const y = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric' }).format(z);
+  const m = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, month: '2-digit' }).format(z);
+  const dd = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, day: '2-digit' }).format(z);
+  return new Date(`${y}-${m}-${dd}T00:00:00+07:00`);
+}
+function wibEndOfDay(d = new Date()) {
+  const start = wibStartOfDay(d);
+  return new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+}
+
+// Window default jika kolom validFrom/validTo tidak ada di DB
+function deriveWindow(achievement) {
+  const freq = (achievement.frequency || 'Daily');
+  if (freq === 'Weekly') {
+    const start = achievement.createdAt ? new Date(achievement.createdAt) : new Date();
+    const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
+    return { start, end };
   }
+  // Daily
+  return { start: wibStartOfDay(), end: wibEndOfDay() };
+}
+
+// Pastikan window exist di object (tanpa harus menulis DB jika kolomnya tidak ada)
+async function ensureWindowOnInstance(a, t = null) {
+  const hasVF = modelHasAttr(Achievement, 'validFrom');
+  const hasVT = modelHasAttr(Achievement, 'validTo');
+
+  if (hasVF && hasVT) {
+    if (!a.validFrom || !a.validTo) {
+      const { start, end } = deriveWindow(a);
+      a.validFrom = start;
+      a.validTo = end;
+      if (!a.status) a.status = 'ACTIVE';
+      await a.save({ transaction: t || undefined });
+    }
+    return { start: a.validFrom, end: a.validTo };
+  }
+
+  // Kolom tidak ada → pakai window derivatif tanpa menyimpan
+  const w = deriveWindow(a);
+  a.dataValues.validFrom = a.dataValues.validFrom || w.start;
+  a.dataValues.validTo = a.dataValues.validTo || w.end;
+  if (!a.status) a.status = 'ACTIVE';
+  return w;
+}
+
+function computeStatusFor(a, now = new Date(), contributed = 0) {
+  const target = toInt(a.targetPoints);
+  const end = a.validTo || deriveWindow(a).end;
+  if (now <= end) return 'ACTIVE';
+  if ((a.frequency || 'Daily') === 'Weekly')
+    return (target > 0 && contributed >= target) ? 'COMPLETED' : 'EXPIRED';
   return 'EXPIRED';
 }
 
-/**
- * Pastikan setiap achievement memiliki window validFrom/validTo.
- * NOTE: gunakan createdAt sbg base utk Weekly (7 hari sejak dibuat)
- */
-async function ensureWindowAndStatus(achievement, userId, t = null) {
-  // Jika kosong, set berdasar object achievement (agar Weekly pakai createdAt)
-  if (!achievement.validFrom || !achievement.validTo) {
-    const { periodStart, periodEnd } = getCurrentWindowWIB(achievement);
-    achievement.validFrom = periodStart;
-    achievement.validTo = periodEnd;
-    achievement.status = 'ACTIVE';
-    await achievement.save({ transaction: t || undefined });
-    return achievement;
-  }
+async function sumContribInWindow(userId, achievementId, winStart, winEnd, t = null) {
+  const ids = (await Habit.findAll({
+    where: { userId, achievementId, isActive: true },
+    attributes: ['id'], raw: true, transaction: t || undefined,
+  })).map(x => x.id);
+  if (!ids.length) return 0;
 
-  // Lazy update status bila lewat window
-  const now = new Date();
-  if (now > achievement.validTo) {
-    let progress = 0;
-    if ((achievement.frequency || 'Daily') === 'Weekly') {
-      progress = await sumContribInWindow(
-        userId,
-        achievement.id,
-        achievement.validFrom,
-        achievement.validTo,
-        t
-      );
-    }
-    const stat = computeStatusFor(achievement, now, progress);
-    if (stat !== achievement.status) {
-      achievement.status = stat;
-      await achievement.save({ transaction: t || undefined });
-    }
+  if (modelHasAttr(HabitCompletion, 'pointsAwarded')) {
+    const rows = await HabitCompletion.findAll({
+      where: { userId, habitId: { [Op.in]: ids }, completedAt: { [Op.gte]: winStart, [Op.lt]: winEnd } },
+      attributes: [[fn('COALESCE', fn('SUM', col('pointsAwarded')), 0), 'sumPoints']],
+      raw: true, transaction: t || undefined,
+    });
+    return Number(rows?.[0]?.sumPoints || 0);
+  } else {
+    const c = await HabitCompletion.count({
+      where: { userId, habitId: { [Op.in]: ids }, completedAt: { [Op.gte]: winStart, [Op.lt]: winEnd } },
+      transaction: t || undefined,
+    });
+    return c; // fallback: 1 poin per completion
   }
-  return achievement;
 }
 
-async function createRewardPairIfMissing(userId, ach, t = null) {
-  const existed = await Reward.findOne({
-    where: { userId, achievementId: ach.id },
-    transaction: t || undefined,
+// saldo user (dukung pointBalance / totalPoints)
+async function getUserBalance(userId, t = null) {
+  const user = await User.findByPk(userId, {
+    attributes: ['id', 'username', 'pointBalance', 'totalPoints'],
+    transaction: t || undefined, lock: t ? t.LOCK.UPDATE : undefined,
   });
-  if (existed) return existed;
-  return Reward.create(
-    {
-      userId,
-      name: ach.name,
-      requiredPoints: Number(ach.targetPoints || 0),
-      description: `Reward for achievement "${ach.name}"`,
-      achievementId: ach.id,
-      isActive: true,
-      expiryDate: null,
-    },
-    { transaction: t || undefined }
-  );
+  if (!user) throw new Error('User tidak ditemukan');
+  const balance = Number(user.pointBalance ?? user.totalPoints ?? 0);
+  return { user, balance };
+}
+async function setUserBalance(user, newBalance, t = null) {
+  if (user.pointBalance !== undefined && user.pointBalance !== null) user.pointBalance = newBalance;
+  else user.totalPoints = newBalance;
+  await user.save({ transaction: t || undefined });
 }
 
-/* =========================================================
-   NEW: GET /achievements/active?type=daily|weekly
-   Mengembalikan kartu aktif + flag canInteract + daftar habits.
-========================================================= */
+/* ========================== FINALISASI ========================== */
+async function finalizeAchievement(achievementId, { forceStatus } = {}) {
+  return sequelize.transaction(async (t) => {
+    const a = await Achievement.findByPk(achievementId, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!a) throw new Error('Achievement tidak ditemukan');
+
+    const userId = a.userId;
+    const { start, end } = await ensureWindowOnInstance(a, t);
+
+    // idempotent jika model Claim tersedia
+    if (AchievementClaim) {
+      const existed = await AchievementClaim.findOne({
+        where: { userId, achievementId },
+        transaction: t, lock: t.LOCK.UPDATE,
+      });
+      if (existed) return existed;
+    }
+
+    const contributed = await sumContribInWindow(userId, a.id, start, end, t);
+    const target = toInt(a.targetPoints);
+    const shouldComplete = forceStatus
+      ? forceStatus === 'COMPLETED'
+      : (target > 0 && contributed >= target);
+
+    let pointsGranted = 0, balanceBefore = null, balanceAfter = null;
+    if (shouldComplete) {
+      const { user, balance } = await getUserBalance(userId, t);
+      pointsGranted = target;
+      balanceBefore = balance;
+      balanceAfter = balance + pointsGranted;
+      await setUserBalance(user, balanceAfter, t);
+    }
+
+    // kalau model Claim tidak ada → jangan bikin 500, cukup update status card
+    if (!AchievementClaim) {
+      a.status = shouldComplete ? 'COMPLETED' : 'EXPIRED';
+      await a.save({ transaction: t });
+      return null;
+    }
+
+    const payload = {
+      userId,
+      achievementId: a.id,
+      status: shouldComplete ? 'COMPLETED' : 'EXPIRED',
+      claimedAt: new Date(),
+      pointsGranted,
+      balanceBefore,
+      balanceAfter,
+    };
+    if (modelHasAttr(AchievementClaim, 'periodStart')) payload.periodStart = start;
+    if (modelHasAttr(AchievementClaim, 'periodEnd'))   payload.periodEnd   = end;
+
+    const claim = await AchievementClaim.create(payload, { transaction: t });
+
+    a.status = shouldComplete ? 'COMPLETED' : 'EXPIRED';
+    await a.save({ transaction: t });
+
+    return claim;
+  });
+}
+
+async function maybeFinalizeAchievement(a, userId) {
+  const { start, end } = await ensureWindowOnInstance(a);
+  const now = new Date();
+  const target = toInt(a.targetPoints);
+  const contributed = await sumContribInWindow(userId, a.id, start, end);
+
+  if (a.status === 'ACTIVE') {
+    if (target > 0 && contributed >= target && now <= end) {
+      return finalizeAchievement(a.id, { forceStatus: 'COMPLETED' });
+    }
+    if (now > end) {
+      const st = (target > 0 && contributed >= target) ? 'COMPLETED' : 'EXPIRED';
+      return finalizeAchievement(a.id, { forceStatus: st });
+    }
+  }
+  return null;
+}
+
+/* ========================== Endpoints ========================== */
+
+// GET /achievements/active?type=daily|weekly
 async function getActive(req, res) {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
@@ -124,13 +215,14 @@ async function getActive(req, res) {
       order: [['createdAt', 'DESC']],
       include: [{ model: Habit, required: false }],
     });
-
     if (!card) return res.json(null);
 
-    await ensureWindowAndStatus(card, userId);
+    const { start, end } = await ensureWindowOnInstance(card);
+    try { await maybeFinalizeAchievement(card, userId); } catch (e) { console.warn('finalize skip:', e?.message); }
+    await card.reload();
 
     const now = new Date();
-    const inWindow = card.validFrom && card.validTo && now >= card.validFrom && now <= card.validTo;
+    const inWindow = now >= (card.validFrom || start) && now <= (card.validTo || end);
     const canInteract = card.status === 'ACTIVE' && inWindow;
 
     return res.json({
@@ -139,12 +231,12 @@ async function getActive(req, res) {
       frequency: card.frequency,
       status: card.status,
       targetPoints: card.targetPoints,
-      validFromUTC: card.validFrom,
-      validToUTC: card.validTo,
-      validFromWIB: fmtWIB(card.validFrom),
-      validToWIB: fmtWIB(card.validTo),
+      validFromUTC: card.validFrom || start,
+      validToUTC: card.validTo || end,
+      validFromWIB: fmtWIB(card.validFrom || start),
+      validToWIB: fmtWIB(card.validTo || end),
       canInteract,
-      habits: (card.Habits || []).map((h) => ({
+      habits: (card.Habits || []).map(h => ({
         id: h.id,
         title: h.title,
         pointsPerCompletion: toInt(h.pointsPerCompletion),
@@ -158,41 +250,30 @@ async function getActive(req, res) {
   }
 }
 
-/* =========================================================
-   NEW: POST /achievements/daily  (window WIB hari ini)
-========================================================= */
+// POST /achievements/daily
 async function createDaily(req, res) {
   const t = await sequelize.transaction();
   try {
-    if (!req.user?.id) {
-      await t.rollback();
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    if (!req.user?.id) { await t.rollback(); return res.status(401).json({ error: 'Unauthorized' }); }
     const userId = req.user.id;
     const { name, targetPoints, description } = req.body || {};
     const tp = toInt(targetPoints);
-    if (!name?.trim() || tp <= 0) {
-      await t.rollback();
-      return res.status(400).json({ error: 'name & targetPoints wajib' });
+    if (!name?.trim() || tp <= 0) { await t.rollback(); return res.status(400).json({ error: 'name & targetPoints wajib' }); }
+
+    const attrs = Achievement?.rawAttributes || {};
+    const body = {
+      userId, name: name.trim(), frequency: 'Daily',
+      targetPoints: tp, description: description || null,
+      isActive: true, status: 'ACTIVE',
+    };
+    if (attrs.validFrom && attrs.validTo) {
+      body.validFrom = wibStartOfDay();
+      body.validTo = wibEndOfDay();
     }
 
-    const win = getWindowMetaWIB('Daily');
-    const ach = await Achievement.create(
-      {
-        userId,
-        name: name.trim(),
-        frequency: 'Daily',
-        targetPoints: tp,
-        description: description || null,
-        isActive: true,
-        status: 'ACTIVE',
-        validFrom: new Date(win.validFromUTC),
-        validTo: new Date(win.validToUTC),
-      },
-      { transaction: t }
-    );
-
+    const ach = await Achievement.create(body, { transaction: t });
     await createRewardPairIfMissing(userId, ach, t);
+
     await t.commit();
     return res.status(201).json({ message: 'Daily dibuat', achievement: ach });
   } catch (err) {
@@ -202,42 +283,34 @@ async function createDaily(req, res) {
   }
 }
 
-/* =========================================================
-   NEW: POST /achievements/weekly  (window 7 hari sejak dibuat)
-========================================================= */
+// POST /achievements/weekly
 async function createWeekly(req, res) {
   const t = await sequelize.transaction();
   try {
-    if (!req.user?.id) {
-      await t.rollback();
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    if (!req.user?.id) { await t.rollback(); return res.status(401).json({ error: 'Unauthorized' }); }
     const userId = req.user.id;
     const { name, targetPoints, description } = req.body || {};
     const tp = toInt(targetPoints);
-    if (!name?.trim() || tp <= 0) {
-      await t.rollback();
-      return res.status(400).json({ error: 'name & targetPoints wajib' });
+    if (!name?.trim() || tp <= 0) { await t.rollback(); return res.status(400).json({ error: 'name & targetPoints wajib' }); }
+
+    const attrs = Achievement?.rawAttributes || {};
+    const now = new Date();
+    const start = now;
+    const end = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
+
+    const body = {
+      userId, name: name.trim(), frequency: 'Weekly',
+      targetPoints: tp, description: description || null,
+      isActive: true, status: 'ACTIVE',
+    };
+    if (attrs.validFrom && attrs.validTo) {
+      body.validFrom = start;
+      body.validTo = end;
     }
 
-    // saat create, base = sekarang (createdAt), valid 7 hari ke depan
-    const win = getWindowMetaWIB('Weekly');
-    const ach = await Achievement.create(
-      {
-        userId,
-        name: name.trim(),
-        frequency: 'Weekly',
-        targetPoints: tp,
-        description: description || null,
-        isActive: true,
-        status: 'ACTIVE',
-        validFrom: new Date(win.validFromUTC),
-        validTo: new Date(win.validToUTC),
-      },
-      { transaction: t }
-    );
-
+    const ach = await Achievement.create(body, { transaction: t });
     await createRewardPairIfMissing(userId, ach, t);
+
     await t.commit();
     return res.status(201).json({ message: 'Weekly dibuat', achievement: ach });
   } catch (err) {
@@ -247,47 +320,32 @@ async function createWeekly(req, res) {
   }
 }
 
-/* =========================================================
-   (Tetap ada) POST /achievements  — backward compat
-========================================================= */
+// (Compat) POST /achievements
 async function createAchievement(req, res) {
   const t = await sequelize.transaction();
   try {
-    if (!req.user?.id) {
-      await t.rollback();
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-    const userId = req.user.id;
-
+    if (!req.user?.id) { await t.rollback(); return res.status(401).json({ error: 'Unauthorized' }); }
     const { name, frequency = 'Daily', targetPoints, description, expiryDate } = req.body || {};
-    if (!name || !['Daily', 'Weekly'].includes(frequency)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'name & frequency wajib (Daily/Weekly)' });
-    }
-    const tp = toInt(targetPoints);
-    if (tp <= 0) {
-      await t.rollback();
-      return res.status(400).json({ error: 'targetPoints harus angka > 0' });
+    if (!name || !['Daily', 'Weekly'].includes(frequency)) { await t.rollback(); return res.status(400).json({ error: 'name & frequency wajib (Daily/Weekly)' }); }
+    const tp = toInt(targetPoints); if (tp <= 0) { await t.rollback(); return res.status(400).json({ error: 'targetPoints harus angka > 0' }); }
+
+    const attrs = Achievement?.rawAttributes || {};
+    const win = frequency === 'Weekly'
+      ? { start: new Date(), end: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 - 1) }
+      : { start: wibStartOfDay(), end: wibEndOfDay() };
+
+    const body = {
+      userId: req.user.id, name: name.trim(), frequency,
+      targetPoints: tp, description: description || null,
+      expiryDate: expiryDate || null, isActive: true, status: 'ACTIVE',
+    };
+    if (attrs.validFrom && attrs.validTo) {
+      body.validFrom = win.start; body.validTo = win.end;
     }
 
-    const win = getWindowMetaWIB(frequency);
-    const ach = await Achievement.create(
-      {
-        userId,
-        name: name.trim(),
-        frequency,
-        targetPoints: tp,
-        description: description || null,
-        expiryDate: expiryDate || null, // legacy
-        isActive: true,
-        status: 'ACTIVE',
-        validFrom: new Date(win.validFromUTC),
-        validTo: new Date(win.validToUTC),
-      },
-      { transaction: t }
-    );
+    const ach = await Achievement.create(body, { transaction: t });
+    const reward = await createRewardPairIfMissing(req.user.id, ach, t);
 
-    const reward = await createRewardPairIfMissing(userId, ach, t);
     await t.commit();
     return res.status(201).json({
       message: 'Achievement dibuat',
@@ -301,10 +359,7 @@ async function createAchievement(req, res) {
   }
 }
 
-/* =========================================================
-   LIST / UPDATE / DELETE / DETAIL / ADD-HABIT
-   — window & progress dihitung dari validFrom/validTo kartu
-========================================================= */
+// PUT /achievements/:id
 async function updateAchievement(req, res) {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
@@ -317,8 +372,7 @@ async function updateAchievement(req, res) {
     const { name, targetPoints, description } = req.body || {};
     if (name !== undefined) a.name = String(name).trim();
     if (targetPoints !== undefined) {
-      const tp = toInt(targetPoints);
-      if (tp <= 0) return res.status(400).json({ error: 'targetPoints harus angka > 0' });
+      const tp = toInt(targetPoints); if (tp <= 0) return res.status(400).json({ error: 'targetPoints harus angka > 0' });
       a.targetPoints = tp;
       await Reward.update({ requiredPoints: tp }, { where: { userId: req.user.id, achievementId: a.id } });
     }
@@ -332,6 +386,7 @@ async function updateAchievement(req, res) {
   }
 }
 
+// DELETE /achievements/:id
 async function deleteAchievement(req, res) {
   const t = await sequelize.transaction();
   try {
@@ -340,12 +395,12 @@ async function deleteAchievement(req, res) {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0) { await t.rollback(); return res.status(400).json({ error: 'ID tidak valid' }); }
 
-    const ach = await Achievement.findOne({ where: { id, userId, isActive: true }, transaction: t, lock: t.LOCK.UPDATE });
-    if (!ach) { await t.rollback(); return res.status(404).json({ error: 'Achievement tidak ditemukan / sudah nonaktif' }); }
+    const a = await Achievement.findOne({ where: { id, userId, isActive: true }, transaction: t, lock: t.LOCK.UPDATE });
+    if (!a) { await t.rollback(); return res.status(404).json({ error: 'Achievement tidak ditemukan / sudah nonaktif' }); }
 
-    ach.isActive = false;
-    await ach.save({ transaction: t });
-    await Reward.update({ isActive: false }, { where: { userId, achievementId: ach.id }, transaction: t });
+    a.isActive = false;
+    await a.save({ transaction: t });
+    await Reward.update({ isActive: false }, { where: { userId, achievementId: a.id }, transaction: t });
 
     await t.commit();
     return res.json({ message: 'Achievement dihapus (soft delete) & reward pairing dinonaktifkan' });
@@ -356,6 +411,7 @@ async function deleteAchievement(req, res) {
   }
 }
 
+// GET /achievements
 async function listAchievements(req, res) {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
@@ -369,23 +425,21 @@ async function listAchievements(req, res) {
 
     const out = [];
     for (const a of items) {
-      await ensureWindowAndStatus(a, req.user.id);
-
-      // Gunakan window kartu (validFrom/validTo), bukan window "minggu berjalan"
-      const periodStart = a.validFrom || new Date(); // fallback aman
-      const periodEnd = a.validTo || new Date();
+      const { start, end } = await ensureWindowOnInstance(a);
+      try { await maybeFinalizeAchievement(a, req.user.id); } catch (e) { console.warn('finalize skip:', e?.message); }
+      await a.reload();
 
       const habits = await Habit.findAll({
         where: { userId: req.user.id, achievementId: a.id, isActive: true },
-        attributes: ['id', 'title', 'frequency', 'pointsPerCompletion'],
-        order: [['createdAt', 'ASC']],
+        attributes: ['id','title','frequency','pointsPerCompletion'],
+        order: [['createdAt','ASC']],
       });
 
-      const contributed = await sumContribInWindow(req.user.id, a.id, periodStart, periodEnd);
+      const contributed = await sumContribInWindow(req.user.id, a.id, a.validFrom || start, a.validTo || end);
       const target = Number(a.targetPoints || 0);
       const progressPercent = target > 0 ? Math.min(100, Math.round((contributed / target) * 100)) : 0;
       const remainingPoints = Math.max(0, target - contributed);
-      const claimable = target > 0 && contributed >= target;
+      const claimable = target > 0 && contributed >= target && now <= (a.validTo || end) && a.status === 'ACTIVE';
 
       out.push({
         id: a.id,
@@ -395,31 +449,25 @@ async function listAchievements(req, res) {
         description: a.description,
         expiryDate: a.expiryDate || null,
         isActive: a.isActive,
-        status: a.status,
+        status: a.status || computeStatusFor(a, now, contributed),
         createdAt: a.createdAt,
         createdAtWIB: fmtWIB(a.createdAt),
         window: {
-          validFromUTC: periodStart,
-          validToUTC: periodEnd,
-          validFromWIB: fmtWIB(periodStart),
-          validToWIB: fmtWIB(periodEnd),
-          nowInWindow: periodStart && periodEnd && now >= periodStart && now <= periodEnd,
+          validFromUTC: a.validFrom || start,
+          validToUTC: a.validTo || end,
+          validFromWIB: fmtWIB(a.validFrom || start),
+          validToWIB: fmtWIB(a.validTo || end),
+          nowInWindow: now >= (a.validFrom || start) && now <= (a.validTo || end),
         },
-        habits: habits.map((h) => ({
+        habits: habits.map(h => ({
           id: h.id, title: h.title, frequency: h.frequency, pointsPerCompletion: toInt(h.pointsPerCompletion),
         })),
-        stats: {
-          contributedPoints: contributed,
-          progressPercent,
-          remainingPoints,
-          claimable,
-        },
+        stats: { contributedPoints: contributed, progressPercent, remainingPoints, claimable },
       });
     }
 
     const onlyClaimable = String(req.query.claimable || '') === '1';
-    const result = onlyClaimable ? out.filter((x) => x.stats.claimable) : out;
-
+    const result = onlyClaimable ? out.filter(x => x.stats.claimable) : out;
     return res.json(result);
   } catch (err) {
     console.error('GET /achievements error:', err);
@@ -427,6 +475,7 @@ async function listAchievements(req, res) {
   }
 }
 
+// GET /achievements/:id
 async function getAchievementDetail(req, res) {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
@@ -436,12 +485,14 @@ async function getAchievementDetail(req, res) {
     const a = await Achievement.findOne({ where: { id, userId: req.user.id } });
     if (!a) return res.status(404).json({ error: 'Achievement tidak ditemukan' });
 
-    await ensureWindowAndStatus(a, req.user.id);
+    const { start, end } = await ensureWindowOnInstance(a);
+    try { await maybeFinalizeAchievement(a, req.user.id); } catch (e) { console.warn('finalize skip:', e?.message); }
+    await a.reload();
 
     const habits = await Habit.findAll({
       where: { userId: req.user.id, achievementId: a.id, isActive: true },
-      attributes: ['id', 'title', 'frequency', 'pointsPerCompletion'],
-      order: [['createdAt', 'ASC']],
+      attributes: ['id','title','frequency','pointsPerCompletion'],
+      order: [['createdAt','ASC']],
     });
 
     return res.json({
@@ -454,10 +505,10 @@ async function getAchievementDetail(req, res) {
       createdAtWIB: fmtWIB(a.createdAt),
       isActive: a.isActive,
       status: a.status,
-      validFromUTC: a.validFrom,
-      validToUTC: a.validTo,
-      validFromWIB: fmtWIB(a.validFrom),
-      validToWIB: fmtWIB(a.validTo),
+      validFromUTC: a.validFrom || start,
+      validToUTC: a.validTo || end,
+      validFromWIB: fmtWIB(a.validFrom || start),
+      validToWIB: fmtWIB(a.validTo || end),
       habits,
     });
   } catch (err) {
@@ -466,6 +517,7 @@ async function getAchievementDetail(req, res) {
   }
 }
 
+// POST /achievements/:id/habits
 async function addHabitToAchievement(req, res) {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
@@ -479,15 +531,21 @@ async function addHabitToAchievement(req, res) {
     const p = toInt(pointsPerCompletion);
     if (!title?.trim() || p <= 0) return res.status(400).json({ error: 'title & pointsPerCompletion wajib' });
 
-    const h = await Habit.create({
+    // Buat habit mengikuti frequency card
+    const habitBody = {
       userId: req.user.id,
       title: title.trim(),
       frequency: a.frequency,
-      pointsPerCompletion: p,
       isActive: true,
       achievementId: a.id,
-    });
+    };
 
+    // Isi field poin sesuai skema model Habit
+    if (modelHasAttr(Habit, 'pointsPerCompletion')) habitBody.pointsPerCompletion = p;
+    else if (modelHasAttr(Habit, 'points')) habitBody.points = p;
+    else habitBody.pointsPerCompletion = p; // default; kalau kolom tak ada, Sequelize abaikan
+
+    const h = await Habit.create(habitBody);
     return res.status(201).json({ message: 'Habit ditambahkan', habit: h });
   } catch (err) {
     console.error('POST /achievements/:id/habits error:', err);
@@ -495,40 +553,19 @@ async function addHabitToAchievement(req, res) {
   }
 }
 
-async function syncRewardsForUser(req, res) {
-  const t = await sequelize.transaction();
-  try {
-    if (!req.user?.id) { await t.rollback(); return res.status(401).json({ error: 'Unauthorized' }); }
-    const userId = req.user.id;
-
-    const achs = await Achievement.findAll({ where: { userId, isActive: true }, transaction: t });
-    const created = [];
-    for (const a of achs) {
-      const exists = await Reward.findOne({ where: { userId, achievementId: a.id }, transaction: t });
-      if (!exists) {
-        const r = await Reward.create(
-          {
-            userId,
-            name: a.name,
-            requiredPoints: Number(a.targetPoints || 0),
-            description: `Reward for achievement "${a.name}"`,
-            achievementId: a.id,
-            isActive: true,
-            expiryDate: null,
-          },
-          { transaction: t }
-        );
-        created.push({ id: r.id, name: r.name, achievementId: a.id });
-      }
-    }
-
-    await t.commit();
-    return res.json({ message: 'Sync selesai', createdCount: created.length, created });
-  } catch (err) {
-    console.error('POST /achievements/sync-rewards error:', err);
-    await t.rollback();
-    return res.status(500).json({ error: 'Gagal sync rewards', detail: String(err?.message || err) });
-  }
+/* ========================== Util internal ========================== */
+async function createRewardPairIfMissing(userId, ach, t = null) {
+  const existed = await Reward.findOne({ where: { userId, achievementId: ach.id }, transaction: t || undefined });
+  if (existed) return existed;
+  return Reward.create({
+    userId,
+    name: ach.name,
+    requiredPoints: Number(ach.targetPoints || 0),
+    description: `Reward for achievement "${ach.name}"`,
+    achievementId: ach.id,
+    isActive: true,
+    expiryDate: null,
+  }, { transaction: t || undefined });
 }
 
 async function claimAchievement(_req, res) {
@@ -536,16 +573,15 @@ async function claimAchievement(_req, res) {
 }
 
 module.exports = {
-
   getActive,
   createDaily,
   createWeekly,
   createAchievement,
   listAchievements,
   getAchievementDetail,
-  addHabitToAchievement,
   updateAchievement,
   deleteAchievement,
-  syncRewardsForUser,
+  addHabitToAchievement,
   claimAchievement,
+  finalizeAchievement,
 };

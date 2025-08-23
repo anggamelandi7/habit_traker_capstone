@@ -1,4 +1,3 @@
-// utils/wibTime.js
 const HOUR = 60 * 60 * 1000;
 const WIB_OFFSET = 7 * HOUR;
 
