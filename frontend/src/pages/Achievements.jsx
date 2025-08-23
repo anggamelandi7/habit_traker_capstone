@@ -1,7 +1,10 @@
-// src/pages/Achievements.jsx
+
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import API from '../utils/api';
+
+
+const ILLUSTRATION_URL = '/images/achievement.png';
 
 /* ===== Helpers WIB / Period (local) ===== */
 function wibYMD(date = new Date()) {
@@ -172,9 +175,9 @@ function AchievementCard({
 
   const percent = Number(a?.stats?.progressPercent ?? a?.progressPercent ?? a?.progress ?? 0);
 
-  // === strict discipline awareness ===
+  // strict discipline awareness
   const status = a?.status || 'ACTIVE'; // ACTIVE | COMPLETED | EXPIRED
-  const nowInWindow = a?.window?.nowInWindow ?? true; // backend listAchievements mengirim window.nowInWindow
+  const nowInWindow = a?.window?.nowInWindow ?? true;
   const isInactive = status !== 'ACTIVE' || !nowInWindow;
 
   const isExpired = status === 'EXPIRED';
@@ -510,14 +513,21 @@ export default function Achievements() {
   const weekly = useMemo(() => items.filter(a => a.frequency === 'Weekly'), [items]);
 
   /* ---- Helpers lock ---- */
+  const getPercent = (a) => Number(a?.stats?.progressPercent ?? a?.progressPercent ?? a?.progress ?? 0);
   const isClaimableByRewards = (a) => {
     if (a.sourceId && claimableMap.bySourceId.has(a.sourceId)) return true;
     return claimableMap.byName.has(makeKeyFromName(a.name));
   };
-  const getPercent = (a) => Number(a?.stats?.progressPercent ?? a?.progressPercent ?? a?.progress ?? 0);
   const isAlreadyClaimedFlag = (a) =>
     a?.stats?.alreadyClaimed === true || a?.isClaimed === true || !!a?.claimedAt || a?.rewardStatus === 'claimed' || isClaimedThisPeriodByGuard(a);
   const isLocked = (a) => isAlreadyClaimedFlag(a) || (getPercent(a) >= 100 && !isClaimableByRewards(a));
+
+  // ringkasan untuk hero
+  const totalActive = useMemo(() => items.filter(i => i.isActive !== false).length, [items]);
+  const claimableCount = useMemo(
+    () => items.filter(i => getPercent(i) >= 100 && isClaimableByRewards(i)).length,
+    [items, claimableMap.byName, claimableMap.bySourceId]
+  );
 
   /* ---- Handlers ---- */
   const handleAddHabit = async (ach, payload) => {
@@ -579,53 +589,98 @@ export default function Achievements() {
   };
 
   const emptyState = (text) => (
-    <div className="text-gray-500 text-sm">
-      {text}{' '}
-      <button onClick={() => setShowCreate(true)} className="text-indigo-600 underline">
-        Tambah Achievement
+    <div className="text-gray-500 text-sm text-center border rounded-xl p-6 bg-gray-50">
+      <div>{text}</div>
+      <img
+        src={ILLUSTRATION_URL}
+        alt="Ilustrasi pencapaian"
+        className="mx-auto mt-4 w-40 h-auto opacity-95"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <button onClick={() => setShowCreate(true)} className="mt-4 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50">
+        ➕ Tambah Achievement
       </button>
     </div>
   );
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* ===== HERO dengan ilustrasi ===== */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow">
+        <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-white/10 blur-2xl" />
+        <div className="absolute -bottom-12 -left-12 w-72 h-72 rounded-full bg-white/10 blur-2xl" />
+
+        <div className="grid md:grid-cols-5 gap-6 items-center p-6 md:p-8 relative">
+          {/* Copy */}
+          <div className="md:col-span-3">
+            <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Rancang Pencapaianmu</h2>
+            <p className="mt-2 text-white/90">
+              Buat kartu <b>Daily</b> (reset 00:00 WIB) atau <b>Weekly</b> (berlaku 7 hari). Tambahkan habits, capai target, lalu klaim hadiah di halaman Rewards.
+            </p>
+
+            {/* Ringkasan kecil */}
+            <div className="mt-4 flex flex-wrap gap-3 text-sm">
+              <span className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-3 py-1">
+                🎴 Kartu aktif: <b>{totalActive}</b>
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-3 py-1">
+                🎁 Siap diklaim: <b>{claimableCount}</b>
+              </span>
+            </div>
+
+            <div className="mt-4">
+              <button
+                onClick={() => setShowCreate(true)}
+                className="inline-flex items-center gap-2 rounded-full bg-white text-indigo-700 font-medium px-4 py-2 hover:bg-indigo-50"
+              >
+                ➕ Tambah Achievement
+              </button>
+            </div>
+          </div>
+
+          {/* Ilustrasi */}
+          <div className="md:col-span-2 flex items-center justify-center">
+            <div className="relative w-full max-w-sm">
+              <div className="absolute inset-0 rounded-2xl bg-white/10 blur-md" />
+              <img
+                src={ILLUSTRATION_URL}
+                alt="Ilustrasi pencapaian dan hadiah"
+                className="relative w-full h-auto object-contain drop-shadow-xl"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Header fungsional (toggle cepat) */}
       <div className="bg-white rounded-2xl shadow p-6 flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">Achievements</h2>
+          <h3 className="text-lg font-semibold">Kelola Achievements</h3>
           <p className="text-gray-600 text-sm">
-            Daily reset otomatis tiap 00:00 WIB. Weekly aktif selama 7 hari sejak kartu dibuat. Jika window berakhir dan progress &lt; 100%, kartu jadi <b>Expired</b>.
+            Daily reset otomatis tiap 00:00 WIB. Weekly aktif 7 hari sejak kartu dibuat.
           </p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-2 rounded-full hover:opacity-90 transition"
-        >
-          + Tambah Achievement
-        </button>
+        <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-indigo-600"
+            checked={hideClaimed}
+            onChange={(e) => setHideClaimed(e.target.checked)}
+          />
+          Sembunyikan yang sudah di-claim
+        </label>
       </div>
 
       {msg && <div className="p-2 border rounded bg-white text-sm shadow-sm">{msg}</div>}
 
       {loading ? (
-        <div>Memuat…</div>
+        <div className="bg-white rounded-2xl p-6 shadow">Memuat…</div>
       ) : (
         <>
           {/* DAILY */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">Daily</h3>
-              <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-indigo-600"
-                  checked={hideClaimed}
-                  onChange={(e) => setHideClaimed(e.target.checked)}
-                />
-                Sembunyikan yang sudah di-claim
-              </label>
-            </div>
-
+            <h4 className="text-base font-semibold text-gray-900">Daily</h4>
             {daily.filter(a => !(hideClaimed && isLocked(a))).length === 0 ? (
               emptyState('Belum ada pencapaian harian.')
             ) : (
@@ -650,7 +705,7 @@ export default function Achievements() {
 
           {/* WEEKLY */}
           <div className="space-y-3">
-            <h3 className="text-lg font-semibold text-gray-900">Weekly</h3>
+            <h4 className="text-base font-semibold text-gray-900">Weekly</h4>
             {weekly.filter(a => !(hideClaimed && isLocked(a))).length === 0 ? (
               emptyState('Belum ada pencapaian mingguan.')
             ) : (

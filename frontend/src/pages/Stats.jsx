@@ -1,4 +1,3 @@
-// src/pages/Stats.jsx
 import { useEffect, useMemo, useState } from 'react';
 import API from '../utils/api';
 import {
@@ -8,11 +7,12 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend
 } from 'recharts';
 
-/* ============ Tema Warna ============ */
+/* ============ Tema & Ilustrasi ============ */
 const THEME = {
   primary: '#8A2BE2', // blueviolet
   primarySoft: '#8A2BE233',
 };
+const ILLUSTRATION_URL = '/images/stats.png';
 const TZ = 'Asia/Jakarta';
 
 /* ================= Helpers WIB ================= */
@@ -244,7 +244,7 @@ export default function Stats() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="animate-pulse h-16 bg-white/70 rounded-2xl" />
+        <div className="animate-pulse h-40 bg-gradient-to-r from-indigo-600/30 to-purple-600/30 rounded-2xl" />
         <div className="grid md:grid-cols-4 gap-4">
           {[...Array(4)].map((_,i)=>(<div key={i} className="h-24 bg-white/70 rounded-2xl animate-pulse" />))}
         </div>
@@ -264,29 +264,48 @@ export default function Stats() {
         .floaty { animation: floaty 3.2s ease-in-out infinite; }
       `}</style>
 
-      {/* ====== Header ====== */}
-      <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-6 text-white shadow">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div>
+      {/* ====== HERO dengan ilustrasi ====== */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow">
+        <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-white/10 blur-2xl" />
+        <div className="absolute -bottom-12 -left-12 w-72 h-72 rounded-full bg-white/10 blur-2xl" />
+
+        <div className="grid md:grid-cols-5 gap-6 items-center p-6 md:p-8 relative">
+          {/* Copy */}
+          <div className="md:col-span-3">
             <div className="text-sm opacity-90">Halo{username ? `, ${username}` : ''} 👋</div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Statistik & Performa</h1>
             <p className="opacity-90 mt-1 text-sm">
               Lihat progres kebiasaan, riwayat poin, dan tren performamu dalam satu tempat.
             </p>
+
+            {/* Rentang */}
+            <div className="mt-4 flex items-center gap-2">
+              <span className="text-sm text-white/90">Rentang:</span>
+              <div className="bg-white/15 rounded-lg p-1">
+                {[7,30,90].map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setRangeDays(n)}
+                    className={`px-3 py-1.5 rounded-md text-sm ${rangeDays===n ? 'bg-white text-indigo-700 font-medium' : 'text-white/90 hover:bg-white/10'}`}
+                    title={`Lihat ${n} hari terakhir`}
+                  >
+                    {n}H
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-white/90">Rentang:</span>
-            <div className="bg-white/15 rounded-lg p-1">
-              {[7,30,90].map(n => (
-                <button
-                  key={n}
-                  onClick={() => setRangeDays(n)}
-                  className={`px-3 py-1.5 rounded-md text-sm ${rangeDays===n ? 'bg-white text-indigo-700 font-medium' : 'text-white/90 hover:bg-white/10'}`}
-                  title={`Lihat ${n} hari terakhir`}
-                >
-                  {n}H
-                </button>
-              ))}
+
+          {/* Ilustrasi */}
+          <div className="md:col-span-2 flex items-center justify-center">
+            <div className="relative w-full max-w-sm">
+              <div className="absolute inset-0 rounded-2xl bg-white/10 blur-md" />
+              <img
+                src={ILLUSTRATION_URL}
+                alt="Ilustrasi statistik"
+                className="relative w-full h-auto object-contain drop-shadow-xl"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
             </div>
           </div>
         </div>
@@ -331,7 +350,15 @@ export default function Stats() {
           <div className="text-sm text-gray-500">Sumber: Ledger (+delta, habit completion) • {rangeDays} hari terakhir</div>
         </div>
         {dailyCompletionData.length === 0 ? (
-          <div className="text-gray-500">Belum ada completion yang terekam.</div>
+          <div className="text-gray-500 text-center p-6 border rounded-xl bg-gray-50">
+            Belum ada completion yang terekam.
+            <img
+              src={ILLUSTRATION_URL}
+              alt="Ilustrasi kosong"
+              className="mx-auto mt-4 w-36 h-auto opacity-95"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          </div>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={dailyCompletionData}>
@@ -353,7 +380,15 @@ export default function Stats() {
           <div className="text-sm text-gray-500">Sumber: Ledger (balanceAfter) • {rangeDays} hari terakhir</div>
         </div>
         {balanceTrend.length === 0 ? (
-          <div className="text-gray-500">Belum ada mutasi poin.</div>
+          <div className="text-gray-500 text-center p-6 border rounded-xl bg-gray-50">
+            Belum ada mutasi poin.
+            <img
+              src={ILLUSTRATION_URL}
+              alt="Ilustrasi kosong"
+              className="mx-auto mt-4 w-36 h-auto opacity-95"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          </div>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={balanceTrend}>
@@ -374,7 +409,15 @@ export default function Stats() {
           <h2 className="text-lg font-semibold">Distribusi Frekuensi Habit</h2>
         </div>
         {(habitFreq[0].count + habitFreq[1].count) === 0 ? (
-          <div className="text-gray-500">Belum ada habit.</div>
+          <div className="text-gray-500 text-center p-6 border rounded-xl bg-gray-50">
+            Belum ada habit.
+            <img
+              src={ILLUSTRATION_URL}
+              alt="Ilustrasi kosong"
+              className="mx-auto mt-4 w-36 h-auto opacity-95"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          </div>
         ) : (
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={habitFreq}>
@@ -393,7 +436,15 @@ export default function Stats() {
       <div className="bg-white rounded-2xl shadow p-6">
         <h2 className="text-lg font-semibold mb-3">Riwayat Poin (10 terbaru)</h2>
         {items.length === 0 ? (
-          <div className="text-gray-500">Belum ada riwayat.</div>
+          <div className="text-gray-500 text-center p-6 border rounded-xl bg-gray-50">
+            Belum ada riwayat.
+            <img
+              src={ILLUSTRATION_URL}
+              alt="Ilustrasi kosong"
+              className="mx-auto mt-4 w-36 h-auto opacity-95"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          </div>
         ) : (
           <div className="overflow-auto">
             <table className="min-w-full text-sm">

@@ -1,6 +1,14 @@
-// src/pages/Rewards.jsx
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getRewards as apiGetRewards, claimReward as apiClaimReward, getRewardHistory as apiGetHistory } from '../api/rewards';
+import { Link } from 'react-router-dom';
+import {
+  getRewards as apiGetRewards,
+  claimReward as apiClaimReward,
+  getRewardHistory as apiGetHistory,
+} from '../api/rewards';
+
+
+const ILLUSTRATION_URL = '/images/reward.png';
 
 /* ============ Helpers WIB & formatting ============ */
 function fmtWIB(iso) {
@@ -20,7 +28,9 @@ function setGuard(name) {
   try {
     const map = JSON.parse(localStorage.getItem(CLAIM_GUARD_KEY) || '{}');
     const now = new Date();
-    const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+    const ymd = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(now);
     map[nameKey(name)] = { claimedD: ymd, updatedAt: Date.now() };
     localStorage.setItem(CLAIM_GUARD_KEY, JSON.stringify(map));
   } catch {}
@@ -32,19 +42,22 @@ function Confetti({ show = false, onDone }) {
   useEffect(() => {
     if (!show) return;
     const colors = ['#6366f1','#8b5cf6','#22c55e','#f59e0b','#ef4444','#06b6d4','#e879f9'];
-    const arr = Array.from({ length: 70 }).map((_, i) => {
+    const arr = Array.from({ length: 80 }).map((_, i) => {
       const angle = Math.random() * Math.PI * 2;
       const dist = 40 + Math.random() * 120;
       const x = Math.cos(angle) * dist;
       const y = Math.sin(angle) * (dist * 0.8);
-      const rot = (Math.random() * 720 - 360) + 'deg';
-      const dur = 700 + Math.random() * 900;
-      const size = 6 + Math.random() * 6;
-      const color = colors[i % colors.length];
-      return { x, y, rot, dur, size, color, delay: Math.random() * 120 };
+      return {
+        x, y,
+        rot: (Math.random() * 720 - 360) + 'deg',
+        dur: 700 + Math.random() * 900,
+        size: 6 + Math.random() * 6,
+        color: colors[i % colors.length],
+        delay: Math.random() * 120
+      };
     });
     setPieces(arr);
-    const t = setTimeout(() => onDone && onDone(), 1400);
+    const t = setTimeout(() => onDone && onDone(), 1500);
     return () => clearTimeout(t);
   }, [show, onDone]);
 
@@ -57,14 +70,11 @@ function Confetti({ show = false, onDone }) {
             key={i}
             className="absolute rounded-sm confetti-piece"
             style={{
-              width: p.size, height: p.size,
-              background: p.color,
+              width: p.size, height: p.size, background: p.color,
               animationDuration: `${p.dur}ms`,
               animationDelay: `${p.delay}ms`,
               transform: `translate(0,0) rotate(0deg)`,
-              '--x': `${p.x}px`,
-              '--y': `${p.y}px`,
-              '--rot': p.rot,
+              '--x': `${p.x}px`, '--y': `${p.y}px`, '--rot': p.rot,
             }}
           />
         ))}
@@ -283,20 +293,68 @@ export default function Rewards() {
       )}
       <Confetti show={showConfetti} onDone={() => setShowConfetti(false)} />
 
-      {/* Header saldo + search */}
-      <div className="bg-white rounded-2xl shadow p-5 md:p-6 flex items-start md:items-center justify-between gap-4 fadein-up">
+      {/* ===== HERO dengan ilustrasi ===== */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow fadein-up">
+        <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-white/10 blur-2xl" />
+        <div className="absolute -bottom-12 -left-12 w-72 h-72 rounded-full bg-white/10 blur-2xl" />
+
+        <div className="grid md:grid-cols-5 gap-6 items-center p-6 md:p-8 relative">
+          {/* Copy */}
+          <div className="md:col-span-3">
+            <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Hadiah untuk Konsistensimu</h2>
+            <p className="mt-2 text-white/90">
+              Kumpulkan poin dari Achievements, lalu klaim reward di sini. Jaga ritmemu—setiap progres bernilai!
+            </p>
+
+            {/* Ringkasan kecil */}
+            <div className="mt-4 flex flex-wrap gap-3 text-sm">
+              <span className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-3 py-1">
+                🏆 Saldo poin: <b className="tabular-nums">{balance}</b>
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-3 py-1">
+                🎁 Siap diklaim: <b>{(items || []).filter(r => r.claimable).length}</b>
+              </span>
+            </div>
+
+            <div className="mt-4">
+              <Link
+                to="/achievements"
+                className="inline-flex items-center gap-2 rounded-full bg-white text-indigo-700 font-medium px-4 py-2 hover:bg-indigo-50"
+              >
+                ➕ Tambah dari Achievements
+              </Link>
+            </div>
+          </div>
+
+          {/* Ilustrasi */}
+          <div className="md:col-span-2 flex items-center justify-center">
+            <div className="relative w-full max-w-sm">
+              <div className="absolute inset-0 rounded-2xl bg-white/10 blur-md" />
+              <img
+                src={ILLUSTRATION_URL}
+                alt="Ilustrasi klaim rewards"
+                className="relative w-full h-auto object-contain drop-shadow-xl"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Header tools: search + tabs */}
+      <div className="bg-white rounded-2xl shadow p-4 md:p-5 flex items-start md:items-center justify-between gap-4 fadein-up">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-50 grid place-items-center text-indigo-600 animate-pop">🏆</div>
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 grid place-items-center text-indigo-600 animate-pop">🎯</div>
           <div>
-            <div className="text-sm text-gray-500">Total Poin Kamu</div>
-            <div className="text-3xl font-extrabold text-gray-900 tracking-tight">{balance}</div>
+            <div className="text-sm text-gray-500">Cari & kelola reward</div>
+            <div className="text-base font-semibold text-gray-900">Rewards Center</div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
             <input
-              className="border rounded-xl px-3 py-2 text-sm w-52 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              className="border rounded-xl px-3 py-2 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-indigo-200"
               placeholder="Cari reward…"
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -338,6 +396,18 @@ export default function Rewards() {
             <div className="rounded-2xl border border-dashed p-8 text-center text-gray-600 bg-white fadein-up">
               <div className="text-lg font-medium">Tidak ada reward yang bisa diklaim saat ini</div>
               <div className="text-sm mt-1">Selesaikan pencapaian hingga 100% untuk membuka reward.</div>
+              <img
+                src={ILLUSTRATION_URL}
+                alt="Ilustrasi rewards kosong"
+                className="mx-auto mt-4 w-40 h-auto opacity-95"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+              <Link
+                to="/achievements"
+                className="inline-flex items-center gap-2 mt-4 rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+              >
+                ➕ Buat Achievement
+              </Link>
             </div>
           ) : (
             <div className="grid md:grid-cols-2 gap-4">
@@ -370,6 +440,12 @@ export default function Rewards() {
           ) : visibleHistory.length === 0 ? (
             <div className="rounded-2xl border border-dashed p-8 text-center text-gray-600 bg-white fadein-up">
               Belum ada riwayat.
+              <img
+                src={ILLUSTRATION_URL}
+                alt="Ilustrasi riwayat kosong"
+                className="mx-auto mt-4 w-40 h-auto opacity-95"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
             </div>
           ) : (
             <div className="grid md:grid-cols-2 gap-4">
