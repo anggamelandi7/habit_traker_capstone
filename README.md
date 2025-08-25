@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/images/logo.png" alt="Trackify Logo" width="200"/>
+  <img src="frontend/public/images/logo.png" alt="Trackify Logo" width="100"/>
 </p>
 
 # 🌟HabitApp — Habit Tracker & Self-Reward System
