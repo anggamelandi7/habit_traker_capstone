@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="https://imgur.com/a/5M4SHi5" alt="Logo" width="120"/>
-</p>
-
 # 🌟HabitApp — Habit Tracker & Self-Reward System
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)  
