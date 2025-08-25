@@ -118,6 +118,9 @@ Expected: 201 Created + { ok: true, id: ... }.
 **Evidence**
 
 - Screenshot run (Replicate): `docs/ai-usage/screenshots/session-1.png`
+<p align="center">
+  <img src="docs/ai-usage/screenshots/session-1.png" alt="Trackify Logo" width="200"/>
+</p>
 
 - Model: `ibm-granite/granite-3.3-8b-instruct`
 - Note: AI support digunakan saat pengembangan saja, tidak dibundel ke runtime app.

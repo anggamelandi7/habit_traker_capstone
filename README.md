@@ -1,80 +1,93 @@
-# HabitApp — Personal Habit Tracker (Capstone Hactiv8)
+<p align="center">
+  <img src="frontend/public/images/logo.png" alt="Trackify Logo" width="200"/>
+</p>
 
-> **Full-Functioning Web App**: habit tracking dengan **Achievements (Daily/Weekly)**, **Habits**, **Rewards**, **Stats**, dan **Profile** — dibangun dengan React + Express + Sequelize. Dirancang dengan disiplin ketat (Daily reset 00:00 WIB; Weekly berlaku 7 hari).
+# 🌟HabitApp — Habit Tracker & Self-Reward System
 
-## Demo & Repos
-- **Repository**: _(https://github.com/anggamelandi7/habit_traker_capstone.git)_
+![License](https://img.shields.io/badge/license-MIT-blue.svg)  
+![Stack](https://img.shields.io/badge/stack-React%20%7C%20Node.js%20%7C%20Express%20%7C%20PostgreSQL-6aa6f8)  
+![Status](https://img.shields.io/badge/status-active-success.svg)
 
-
----
-
-## Overview
-**HabitApp** membantu kamu membangun kebiasaan konsisten lewat dua tipe pencapaian:
-- **Daily** — berlaku **hari ini** (WIB) dari 00:00 sampai 23:59:59.
-- **Weekly** — berlaku **7 hari** penuh sejak kartu dibuat.
-
-Tambahkan **Habits** ke **Achievement card**, selesaikan untuk kumpulkan poin, lalu **klaim Rewards** saat target tercapai. **Stats** menampilkan KPI & grafik, **Profile** untuk kelola akun.
-
-### Strict Discipline (WIB)
-- **Daily**: otomatis **EXPIRED** tepat **00:00 WIB** hari berikutnya → non-interaktif.
-- **Weekly**: valid **7 hari** sejak dibuat. Akhir periode: **COMPLETED** jika target tercapai; jika belum, **EXPIRED**.
-- **Riwayat** tidak dihapus; status disimpan untuk histori & statistik.
+> **HabitApp** adalah aplikasi Habit Tracker modern berbasis web yang membantu pengguna membangun kebiasaan baik secara konsisten 🎯.  
+> Setiap habit yang diselesaikan akan memberi poin, yang bisa ditukar dengan **Reward** sesuai target user.  
+> Project ini adalah bagian dari **Capstone Hacktiv8**.
 
 ---
 
-## Fitur Utama
-- **Auth** (Login/Register), **protected routes**, JWT Bearer (di `localStorage`).
-- **Achievements**
-  - Buat **Daily** / **Weekly**, tambah **deskripsi**, tetapkan **target points**.
-  - Tambah **Habits** dengan ikon otomatis (berdasar nama), warna UI konsisten.
-  - **Lock & Stamp**: jika sudah diklaim → kartu terkunci dengan cap _“Sudah di claim”_ (hanya bisa dihapus).
-  - Toggle **“Sembunyikan yang sudah di-claim”** (persist di `localStorage`).
-- **Habits**
-  - Seksi “**Habits hari ini**” & “**Habits minggu ini**”.
-  - **Kalender**: badge ‘done’ per hari; **Weekly** ditandai **sepanjang window 7 hari**; Daily pending di tanggal terpilih.
-  - Konfirmasi selesai & modal edit; hanya interaktif **dalam window**.
-- **Rewards**
-  - **Pairing otomatis** Achievement ↔ Reward; muncul saat progress ≥ target.
-  - Klaim dengan **animasi confetti**, guard agar reward tidak respawn setelah diklaim.
-  - **Saldo poin** & **Riwayat klaim** (sumber resmi: tabel `userRewards`).
-- **Stats**
-  - KPI: **Total Habits**, **Total Completion**, **Total Claims**, **Saldo Poin**.
-  - Grafik **Completion Harian** (bar, WIB, 7/30/90 hari), **Tren Saldo** (line), **Distribusi Habit** Daily vs Weekly.
-- **Profile**
-  - Sapaan username, ringkasan kontribusi.
-  - Kelola profil: **ganti username** & **ganti password**.
-- **UI/UX**
-  - **Hero section + ilustrasi** di halaman, **empty-state** ramah, tema konsisten (**blueviolet** di Stats).
+## ✨ Features
+
+- 🔐 **Authentication**
+  - Register & Login dengan JWT
+  - Proteksi route via middleware
+
+- ✅ **Habit Management**
+  - Tambah, edit, hapus Habit
+  - Daily / Weekly habit
+  - Progress tracking + streak harian/mingguan
+
+- 🏆 **Rewards System**
+  - Klaim reward dengan poin
+  - Status reward: aktif, kadaluarsa, history klaim
+  - Saldo poin realtime
+
+- 📊 **Dashboard**
+  - Ringkasan habit aktif & reward
+  - Info saldo poin
+  - Quick actions (add habit, add achievement, lihat rewards)
+
+- 📅 **Calendar View**
+  - Integrasi kalender (daily/weekly)
+  - Event habit selesai vs pending
+
+- 📈 **Stats**
+  - Grafik progres habit mingguan
+  - Analitik jumlah habit berdasarkan frekuensi
+
+- 🎉 **Gamification**
+  - Animasi confetti saat klaim reward
+  - Badge untuk user berdasarkan poin
 
 ---
 
-## Tech Stack
-- **Frontend**: React (Vite/CRA), React Router, TailwindCSS, Recharts.
-- **Backend**: Node.js, Express.js, Sequelize ORM.
-- **Database**: MySQL/PostgreSQL/SQLite (via Sequelize).
-- **Auth**: JWT (Bearer) + middleware `verifyToken`.
-- **Deployment**: Netlify/Vercel (FE), host bebas untuk BE.
+## 🛠️ Tech Stack
+
+**Frontend**  
+- ⚛️ React  
+- 🎨 Tailwind CSS  
+- 📦 Axios  
+
+**Backend**  
+- 🟩 Node.js + Express  
+- 🗄️ PostgreSQL (via Sequelize ORM)  
+- 🔑 JWT Authentication  
+
+**Dev Tools**  
+- Sequelize CLI (migrations & seeders) 
+- Postman
+- Dbeaver  
 
 ---
 
-## Arsitektur Singkat
-```text
-frontend/
-  src/
-    pages/            # Login, Register, Dashboard, Habits, Achievements,   Rewards, Stats, Profile
-    components/       # Calendar, Header/Topbar, Sidebar, dll
-    utils/api.js      # axios instance -> baseURL + Authorization
-    api/              # (opsional) wrapper per modul (rewards, dsb)
-  public/assets/      # ilustrasi & logo
 
-backend/
-  controllers/        # achievementController, habitController, rewardController, userController
-  routes/             # achievementRoutes, habitRoutes, rewardRoutes, userRoutes
-  models/             # User, Achievement, Habit, HabitCompletion, Reward, userRewards, ...
-  middlewares/        # authMiddleware (verifyToken)
-  config/config.json  # Sequelize configs (dev/test/prod)
-  server.js           # bootstrap Express
+## 📂 Project Structure
 
+```bash
+Angga_Melandi-FinalProject/
+├── backend/
+│   ├── controllers/
+│   ├── models/          # Sequelize models
+│   ├── migrations/      # Sequelize migrations
+│   ├── seeders/         # Optional demo data
+│   ├── routes/
+│   └── server.js
+│
+└── frontend/
+    ├── src/
+    │   ├── api/         # API client
+    │   ├── components/  # Reusable UI
+    │   ├── pages/       # Dashboard, Habits, Rewards, Stats
+    │   └── main.jsx
+    └── index.css
 ````
 
 Relasi penting:
@@ -85,45 +98,40 @@ Relasi penting:
 
 ---
 
-##  Getting Started
+## 🚀Getting Started
 
-### 1) Prasyarat
-- Node.js v18+
-- (Opsional) `npm i -g sequelize-cli`
-- Database aktif (MySQL/Postgres/SQLite)
-
-### 2) Setup Backend
-```bash
+````bash
 cd backend
-cp config/config.example.json config/config.json   # sesuaikan kredensial DB
-# Buat DB sesuai config, lalu:
-npx sequelize db:migrate
-# (opsional) npx sequelize db:seed:all
-
 npm install
-npm run dev   # atau: npm start
-# default: http://localhost:5000
 ````
-
- ENV :
-```bash 
-JWT_SECRET=your-secret
-NODE_ENV=development
-PORT=5000
-```
-> Endpoint penting: /achievements, /habits, /rewards, /rewards/history, /users/me, /users/update-username, /users/update-password, /points/ledger (opsional; fallback /ledger/range atau /ledger).
-
-
-### 3) Setup Frontend
+Buat file .env (copy dari .env.example):
 ````bash
-cd frontend
-npm install
-# sesuaikan baseURL di src/utils/api.js (default: http://localhost:5000)
-npm run dev    # development
-npm run build  # production
+DB_HOST=localhost
+DB_USER=postgres
+DB_PASSWORD=yourpassword
+DB_NAME=trackify_dev
+DB_PORT=5432
+JWT_SECRET=yoursecret
 ````
+Lalu jalankan migration:
+````bash
+npx sequelize-cli db:migrate
+````
+Jalankan server:
+````bash
+npm run dev
+````
+Server jalan di http://localhost:5000.
+
+**2. Setup Backend**
+````bash
+cd ../frontend
+npm install
+npm run start
+````
+
 Letakkan ilustrasi di public/images/ : 
-````bash
+````
 Logo.png
 login-page.png
 register-page.png
@@ -132,7 +140,6 @@ habits.png
 achievements.png
 rewards.png
 stats.png
-
 ````
 ---
 
@@ -142,7 +149,7 @@ stats.png
 
 ---
 
-### API Reference (ringkas) 
+## 🧪 API Endpoints (ringkas) ## 
 > Nama & skema dapat sedikit bervariasi sesuai migrasi terbaru.
 
 #### Achievements
@@ -191,15 +198,28 @@ Alias: POST /achievements/daily, POST /achievements/weekly.
 - UI/UX microcopy: menyusun pesan sambutan Dashboard (new vs existing user) dalam Bahasa Indonesia.
 - Spesifikasi perilaku: membantu memformalkan strict WIB (kadaluarsa harian 00:00 WIB; weekly 7 hari).
 > AI tidak dibundel ke aplikasi runtime/produksi. Semua keputusan akhir melalui review dan pengujian.
----
+----
+## 📖 Development Guide
+
+- Gunakan sequelize-cli untuk migrasi schema:
+````bash
+npx sequelize-cli migration:generate --name add-something
+npx sequelize-cli db:migrate
+````
 ### Roadmap (opsional)
 - Template auto-generate Daily/Weekly.
 - Notifikasi in-app menjelang expired.
 - Dark mode & theming.
 - Internationalization (i18n).
 ---
+
 ### Lisensi
 MIT — silakan gunakan, modifikasi, dan kembangkan.
 ---
 ### 🙌 Kredit
 Capstone Project — Hactiv8. Terima kasih untuk mentor & rekan.
+---
+👥 Author
+
+🧑 Angga Melandi — Fullstack Web Developer
+---
