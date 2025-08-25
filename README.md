@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="frontend/public/images/logo.png" alt="Trackify Logo" width="200"/>
-</p>
-
 # 🌟HabitApp — Habit Tracker & Self-Reward System
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)  
