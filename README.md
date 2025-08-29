@@ -69,7 +69,7 @@
 ## 📂 Project Structure
 
 ```bash
-Angga_Melandi-FinalProject/
+habit-tracker-casptone/
 ├── backend/
 │   ├── controllers/
 │   ├── models/          # Sequelize models
