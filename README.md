@@ -1,3 +1,4 @@
+
 # 🌟HabitApp — Habit Tracker & Self-Reward System
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)  
@@ -95,7 +96,7 @@ Relasi penting:
 ---
 
 ## 🚀Getting Started
-
+**1. Setup Backend**
 ````bash
 cd backend
 npm install
@@ -119,7 +120,7 @@ npm run dev
 ````
 Server jalan di http://localhost:5000.
 
-**2. Setup Backend**
+**2. Setup Frontend**
 ````bash
 cd ../frontend
 npm install
